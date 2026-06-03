@@ -40,7 +40,7 @@
       <div class="lens-tile lens-tile-ticket lens-tile-disabled" aria-disabled="true">
         <div class="lens-tile-icon" aria-hidden="true">🎫</div>
         <div class="lens-tile-name">Ticket Lens</div>
-        <div class="lens-tile-desc">Browse customer tickets and prep call briefs.</div>
+        <div class="lens-tile-desc">Browse customer tickets and summarize with AI.</div>
         {{ tile_status_row(ticket_status) }}
         <div class="lens-tile-cta">
           <span>Not connected to Zendesk. Run <code>capture_cookies.py</code> to set <code>ZENDESK_COOKIE</code> in <code>.env</code>, then restart.</span>
@@ -50,7 +50,7 @@
       <a class="lens-tile lens-tile-ticket" href="{{ url_for('ticket_lens_home') }}">
         <div class="lens-tile-icon" aria-hidden="true">🎫</div>
         <div class="lens-tile-name">Ticket Lens</div>
-        <div class="lens-tile-desc">Browse customer tickets and prep call briefs.</div>
+        <div class="lens-tile-desc">Browse customer tickets and summarize with AI.</div>
         {{ tile_status_row(ticket_status) }}
       </a>
     {% endif %}
