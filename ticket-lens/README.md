@@ -107,8 +107,7 @@ For one-click access, put the app in your Dock:
 ### `customers.json`
 
 Lists the customers you cover. Each entry needs `name`, `slug`, and
-`zendesk_org_id`. (The separate Resource Lens app uses a `confluent_org_id`
-field in its own `customers.json`.)
+`zendesk_org_id`.
 
 ## How it works
 
