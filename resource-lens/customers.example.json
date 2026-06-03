@@ -1,0 +1,15 @@
+{
+  "_comment": "Copy this to customers.json and fill in your customers. customers.json is git-ignored — never commit it (it holds customer names + org IDs).",
+  "customers": [
+    {
+      "name": "Acme Corp",
+      "slug": "acme",
+      "confluent_org_id": 1234
+    },
+    {
+      "name": "Globex",
+      "slug": "globex",
+      "confluent_org_id": null
+    }
+  ]
+}

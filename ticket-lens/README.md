@@ -107,7 +107,14 @@ For one-click access, put the app in your Dock:
 ### `customers.json`
 
 Lists the customers you cover. Each entry needs `name`, `slug`, and
-`zendesk_org_id`.
+`zendesk_org_id`. Copy the template and fill in your own:
+
+```bash
+cp customers.example.json customers.json
+```
+
+**`customers.json` is git-ignored** — it holds customer names and org IDs, so it
+stays local and is never committed. Keep your own copy.
 
 ## How it works
 

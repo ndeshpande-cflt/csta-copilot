@@ -45,5 +45,9 @@ __pycache__/
 # Scratch
 temp.txt
 
+# Per-user customer list — names + org IDs are sensitive; never commit to a
+# (public) repo. Each user keeps a local copy; see customers.example.json.
+customers.json
+
 # macOS
 .DS_Store

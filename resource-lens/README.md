@@ -39,7 +39,14 @@ Runs on **port 5002** so it can run alongside Ticket Lens (port 5001).
 
 Each entry needs `name`, `slug`, and `confluent_org_id` (the org whose
 environments/clusters you want to browse). Entries without `confluent_org_id`
-are shown disabled.
+are shown disabled. Copy the template and fill in your own:
+
+```bash
+cp customers.example.json customers.json
+```
+
+**`customers.json` is git-ignored** — it holds customer names and org IDs, so it
+stays local and is never committed.
 
 ## Reference
 
