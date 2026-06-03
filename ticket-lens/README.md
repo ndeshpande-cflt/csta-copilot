@@ -4,77 +4,105 @@ A small Flask tool that uses your browser session cookie (no API key needed) to
 pull Zendesk tickets and generate "30-second briefs" by shelling out to the
 Claude Code CLI.
 
-> **Note:** Resource Lens (Confluent Cloud environments/clusters) now lives in a
-> separate app under `../resource-lens`. The in-app Settings page is disabled —
-> cookies are managed through `.env` (see below).
-
 ## Prerequisites
 
 - Python 3.9+
 - Claude Code installed and working — verify with `claude --version`
 - Browser access to Zendesk
+- The **Glean MCP server** added to Claude Code (the briefs and chat use it) —
+  see below.
 
-## Setup
+### Claude Code: add the Glean MCP server
 
-One-time setup — creates the venv, installs dependencies (including the browser
-used for cookie capture), and seeds `.env`:
+Briefs and ticket chat enrich answers with internal Glean search, so Claude Code
+needs the Glean MCP server configured (once, at user scope so it's available to
+every project):
+
+```bash
+claude mcp add --transport http glean https://confluent-be.glean.com/mcp/default -s user
+```
+
+Verify it's connected:
+
+```bash
+claude mcp list            # glean should show "✓ Connected"
+claude mcp get glean       # shows URL, transport, scope
+```
+
+The first call will prompt you to authenticate to Glean in the browser.
+
+### Claude Code: raise the MCP timeouts
+
+Glean calls can take a while, so give MCP more time than the default. These are
+**global** MCP timeouts (they apply to every MCP server, not just Glean), set as
+env vars in `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "MCP_TIMEOUT": "300000",
+    "MCP_TOOL_TIMEOUT": "300000"
+  }
+}
+```
+
+- **`MCP_TIMEOUT`** — server startup timeout, in milliseconds.
+- **`MCP_TOOL_TIMEOUT`** — tool-call timeout, in milliseconds (`300000` = 5 min).
+
+Restart Claude Code (and this app) after changing them.
+
+Useful MCP commands:
+
+```bash
+claude mcp list                 # all servers + health
+claude mcp get glean            # one server's config
+```
+
+## 1. One-time setup
+
+From the `ticket-lens` folder:
 
 ```bash
 ./setup.sh
-# then set ZENDESK_SUBDOMAIN in .env
 ```
 
-## Running
+This creates the virtual environment, installs everything, and creates a `.env`.
+Then open `.env` and set your Zendesk subdomain:
+
+```
+ZENDESK_SUBDOMAIN=yourcompany     # the YOURCOMPANY in YOURCOMPANY.zendesk.com
+```
+
+## 2. Run the app
 
 ```bash
 ./run.sh
 ```
 
-`run.sh` checks your Zendesk cookie; if it's missing or expired it opens a
-browser for you to log in (see [Cookies](#cookies)), captures the cookie, then
-starts the app and opens <http://localhost:5001>.
+That's it. `run.sh` handles everything else for you:
 
-**macOS:** you can also double-click **`Ticket Lens.app`** in Finder — it runs
-setup on first launch, then `run.sh`, and stays in the Dock while running
-(quit from the Dock to stop it). The first time, macOS may require right-click →
-**Open** → **Open**.
+1. Checks your Zendesk session. **If you're not signed in, a browser window
+   opens — just log in (SSO included) and it closes automatically.**
+2. Starts the app and opens it at <http://localhost:5001/tickets>.
+
+To stop the app, press **Ctrl+C** in the terminal.
+
+## 3. (macOS) Add a Dock shortcut
+
+For one-click access, put the app in your Dock:
+
+1. In Finder, open the `ticket-lens` folder and find **`Ticket Lens.app`**.
+2. Drag it onto your Dock.
+3. Click it to launch — it runs setup on first use, signs you in if needed, and
+   opens the app. It stays in the Dock with a running indicator while open;
+   **right-click → Quit** (or ⌘Q) stops it. Clicking the Dock icon again brings
+   the running app's terminal to the front.
+
+> The first time you launch from Finder/Dock, macOS may say it's from an
+> "unidentified developer." Right-click the app → **Open** → **Open** once; after
+> that it launches normally.
 
 ## Configuration
-
-### `.env`
-
-- **`ZENDESK_SUBDOMAIN`** — the `YOURCOMPANY` part of `YOURCOMPANY.zendesk.com`.
-- **`CLAUDE_CMD`** — usually leave as `claude`. Set to a full path if it isn't on `$PATH`.
-- **`CACHE_TTL_SECONDS`** — how long to cache API responses (default 600).
-- **`ZENDESK_COOKIE`** — your Zendesk session cookie. Don't set this by hand;
-  it's written by `capture_cookies.py` (see [Cookies](#cookies) below).
-
-`.env` holds your session cookie, so it's git-ignored — never commit it.
-
-### Cookies
-
-The Zendesk session cookie lives in `.env` as `ZENDESK_COOKIE`. You don't paste
-it by hand — `capture_cookies.py` does it for you:
-
-```bash
-.venv/bin/python capture_cookies.py
-```
-
-This opens a browser at your Zendesk subdomain. Log in (SSO included); as soon
-as it detects an authenticated session (via `/api/v2/users/me.json`) it grabs
-the cookie, closes the browser, and writes `ZENDESK_COOKIE` to `.env`.
-
-`run.sh` runs this automatically when needed, so most of the time you won't call
-it directly.
-
-**Check whether the current cookie is still valid:**
-
-```bash
-.venv/bin/python capture_cookies.py --check
-```
-
-Exit code `0` = valid (prints who you're logged in as), `1` = missing/expired,
-`2` = couldn't reach Zendesk.
 
 ### `customers.json`
 
@@ -93,19 +121,18 @@ For each ticket request:
 
 No API key, no Anthropic billing — just whatever auth Claude Code already has.
 
-## How sessions expire
+## When your session expires
 
-Zendesk session cookies typically last hours to a day. When the landing page
-shows "Disconnected", the cookie has expired — just re-run `./run.sh` (it
-detects the invalid cookie and re-opens the login flow), or run
-`.venv/bin/python capture_cookies.py` directly. Because `.env` is read at
-startup, restart the app after refreshing the cookie.
+Zendesk session cookies typically last hours to a day. When the page shows
+"Disconnected", your session has expired — just **launch the app again** (Dock
+icon or `./run.sh`). It detects the expired session and re-opens the sign-in
+browser automatically.
 
 ## Speed tips
 
 - Bookmark `http://localhost:5001/t/12345` — skips the entry page entirely.
-- Briefs and ticket data are cached in `cache.db`. Refresh button (↻) bypasses
-  the cache when a ticket has new activity.
+- Briefs and ticket data are cached in `cache.db`. The refresh button (↻)
+  bypasses the cache when a ticket has new activity.
 - The brief is auto-regenerated when the ticket's `updated_at` is newer than
   the last brief.
 

@@ -84,13 +84,17 @@ if [ -f .env ]; then
   else
     note "$PASS" "ZENDESK_SUBDOMAIN=$SUBDOMAIN"
   fi
-elif [ -f .env.example ]; then
-  cp .env.example .env
-  note "$WARN" ".env created from .env.example — edit it before relying on Ticket Lens"
-  detail "Set ZENDESK_SUBDOMAIN in .env"
 else
-  note "$WARN" "No .env or .env.example found"
-  detail "App will start, but Ticket Lens needs ZENDESK_SUBDOMAIN to work"
+  # Create .env with ZENDESK_SUBDOMAIN preset to confluent. Seed from
+  # .env.example if present (swapping the placeholder), else write a minimal file.
+  if [ -f .env.example ]; then
+    sed -E 's/^([[:space:]]*ZENDESK_SUBDOMAIN[[:space:]]*=).*/\1confluent/' .env.example > .env
+    # If .env.example had no ZENDESK_SUBDOMAIN line, append one.
+    grep -qE '^[[:space:]]*ZENDESK_SUBDOMAIN[[:space:]]*=' .env || printf '\nZENDESK_SUBDOMAIN=confluent\n' >> .env
+  else
+    printf 'ZENDESK_SUBDOMAIN=confluent\n' > .env
+  fi
+  note "$PASS" ".env created with ZENDESK_SUBDOMAIN=confluent"
 fi
 
 # --- 4. Virtual environment ------------------------------------------------
