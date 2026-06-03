@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>#{{ ticket_id }} — {{ bundle.ticket.subject }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <nav class="breadcrumbs" aria-label="Breadcrumb">
+    <a href="{{ url_for('index') }}">Home</a>
+    {% if meta.customer_slug %}
+      <span class="bc-sep">/</span>
+      <a href="{{ url_for('view_customer', slug=meta.customer_slug) }}">{{ meta.customer_org_name }}</a>
+    {% endif %}
+    <span class="bc-sep">/</span>
+    <span class="bc-current">#{{ meta.ticket_id }}</span>
+  </nav>
+  <div class="topbar-right">
+    {% if current_user and current_user.first_name %}
+      <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
+    {% endif %}
+  </div>
+</header>
+
+<section class="ticket-header">
+  <div class="ticket-header-top">
+    <h1 class="subject">
+      {% if meta.customer_name %}<span class="customer-pill">{{ meta.customer_name }}</span>{% endif %}
+      {% if meta.zendesk_url %}
+        <a href="{{ meta.zendesk_url }}" target="_blank" class="ticket-link">#{{ meta.ticket_id }} ↗</a>
+      {% else %}
+        <span class="ticket-link">#{{ meta.ticket_id }}</span>
+      {% endif %}
+      <span class="subject-text">{{ meta.subject }}</span>
+    </h1>
+    <div class="badges">
+      <span class="status status-{{ meta.status }}">{{ meta.status }}</span>
+      <span class="prio prio-{{ meta.priority }}">{{ meta.priority | prio_label }}</span>
+    </div>
+  </div>
+
+  <dl class="ticket-facts">
+    <div>
+      <dt>Organization</dt>
+      <dd>
+        {% if meta.customer_slug and meta.organization_name %}
+          <a href="{{ url_for('view_customer', slug=meta.customer_slug) }}" class="org-link">{{ meta.organization_name }}</a>
+        {% elif meta.organization_name %}
+          {{ meta.organization_name }}
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div><dt>Opened</dt><dd>{{ meta.created_at }}</dd></div>
+    <div><dt>Latest reply</dt><dd>{{ meta.latest_reply_at }}</dd></div>
+    <div><dt>Total days</dt><dd>{{ meta.total_days if meta.total_days is not none else '—' }}</dd></div>
+    {% if meta.cluster_ids %}
+      <div>
+        <dt>Cluster ID</dt>
+        <dd class="cluster-values">
+          {% for cid in meta.cluster_ids %}<span class="cluster-pill">{{ cid }}</span>{% endfor %}
+        </dd>
+      </div>
+    {% endif %}
+    {% if meta.cluster_names %}
+      <div>
+        <dt>Cluster name</dt>
+        <dd class="cluster-values">
+          {% for cn in meta.cluster_names %}<span class="cluster-pill">{{ cn }}</span>{% endfor %}
+        </dd>
+      </div>
+    {% endif %}
+    <div>
+      <dt>Sentiment</dt>
+      <dd id="sentiment-cell">
+        {% if meta.sentiment %}
+          <span class="sentiment-pill sentiment-{{ meta.sentiment|lower }}">{{ meta.sentiment }}</span>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div class="contacts">
+      <dt>Customer contacts</dt>
+      <dd>
+        {% if meta.customer_contacts %}
+          <ul class="contact-list">
+            {% for p in meta.customer_contacts %}
+              <li class="contact-item"{% if p.email %} title="{{ p.email }}"{% endif %}>{{ p.name }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}<span class="muted">—</span>{% endif %}
+      </dd>
+    </div>
+    <div class="contacts">
+      <dt>Confluent contacts</dt>
+      <dd>
+        {% if meta.confluent_contacts %}
+          <ul class="contact-list">
+            {% for p in meta.confluent_contacts %}
+              <li class="contact-item"{% if p.email %} title="{{ p.email }}"{% endif %}>{{ p.name }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}<span class="muted">—</span>{% endif %}
+      </dd>
+    </div>
+  </dl>
+</section>
+
+<div class="main">
+  <div class="page-actions">
+    <button type="button" id="chat-open" class="chat-open-btn" aria-label="Ask Claude about this ticket">
+      <svg class="brand-icon brand-claude" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M12 2.2l1.9 5.9 5.9 1.9-5.9 1.9L12 17.8l-1.9-5.9L4.2 10l5.9-1.9L12 2.2zM18.5 14.5l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6zM5 16l.6 1.7 1.7.6-1.7.6L5 20.6l-.6-1.7L2.7 18.3l1.7-.6L5 16z"/>
+      </svg>
+      <span>Ask Claude about this ticket</span>
+    </button>
+  </div>
+
+  <section class="brief tabbed">
+    <nav class="vtabs" role="tablist" aria-orientation="vertical">
+      <button type="button" role="tab" class="vtab active" data-target="tab-short" aria-selected="true">
+        Short summary
+      </button>
+      <button type="button" role="tab" class="vtab" data-target="tab-long" aria-selected="false">
+        Long summary
+      </button>
+    </nav>
+
+    <div class="vtab-panels">
+      <div class="vtab-panel active" id="tab-short" role="tabpanel">
+        <div class="brief-body summary-md" id="short-summary-body"
+             data-url="{{ url_for('generate_short_summary', ticket_id=ticket_id) }}"
+             {% if short_pending %}data-pending="1"{% endif %}>
+          {% if short_pending %}
+            <div class="summary-loader" data-hint="5–15 seconds">
+              <div class="summary-loader-spinner" aria-hidden="true"></div>
+              <div class="summary-loader-body">
+                <div class="summary-loader-title">
+                  <span class="summary-loader-verb">Reading</span>
+                  <span class="summary-loader-hint">· 5–15 seconds</span>
+                </div>
+                <div class="summary-loader-snippet" aria-live="polite">Loading ticket…</div>
+              </div>
+            </div>
+          {% else %}{{ short_summary }}{% endif %}
+        </div>
+      </div>
+
+      <div class="vtab-panel" id="tab-long" role="tabpanel" hidden>
+        <div class="long-summary-header">
+          <button type="button" id="long-summary-btn" class="gen-btn"
+                  data-url="{{ url_for('generate_long_summary', ticket_id=ticket_id) }}">
+            {% if long_summary %}Regenerate{% else %}Generate{% endif %}
+          </button>
+        </div>
+        <div class="brief-body summary-md" id="long-summary-body">{{ long_summary or '' }}</div>
+      </div>
+
+    </div>
+  </section>
+</div>
+
+<aside id="chat-panel" class="chat-panel" hidden aria-label="Ticket chat" aria-modal="false">
+  <header class="chat-header">
+    <div class="chat-title">
+      <strong>Ask about this ticket</strong>
+      <span class="chat-ticket-ref" title="#{{ meta.ticket_id }} — {{ meta.subject }}">
+        <span class="chat-ticket-id">#{{ meta.ticket_id }}</span>
+        <span class="chat-ticket-sep">·</span>
+        <span class="chat-ticket-subject">{{ meta.subject }}</span>
+      </span>
+      <span class="chat-subtitle">Claude has the full conversation as context.</span>
+    </div>
+    <button type="button" id="chat-reset" class="chat-icon-btn" aria-label="Reset chat" title="Start a fresh chat — clears all messages">↺</button>
+    <button type="button" id="chat-close" class="chat-icon-btn chat-close" aria-label="Close chat" title="Close">×</button>
+  </header>
+  <div class="chat-messages" id="chat-messages" aria-live="polite">
+    <div class="chat-empty">
+      <p class="chat-empty-text">Ask anything about this ticket — or pick a starter:</p>
+      <div class="chat-suggestions">
+        <button type="button" class="chat-suggestion">Draft a Slack message I can post to ping Support for an update on this ticket.</button>
+        <button type="button" class="chat-suggestion">Draft a Slack-style status update I can send the customer summarizing where things stand.</button>
+        <button type="button" class="chat-suggestion">Draft an internal escalation message — what's at risk, what we've tried, and what we need from leadership or engineering.</button>
+        <button type="button" class="chat-suggestion">As a CSTA, what's the best next step I can take on this ticket?</button>
+        <button type="button" class="chat-suggestion">Walk me through the technical terms used in this ticket in plain English.</button>
+        <button type="button" class="chat-suggestion">What products, APIs, or Kafka concepts are involved here? Give me a quick primer.</button>
+        <button type="button" class="chat-suggestion">Help me debug this issue</button>
+      </div>
+    </div>
+  </div>
+  <form class="chat-input-row" id="chat-form" data-url="{{ url_for('chat_with_ticket', ticket_id=ticket_id) }}">
+    <textarea
+      id="chat-input"
+      class="chat-input"
+      rows="2"
+      placeholder="Ask about this ticket…  (Enter to send, Shift+Enter for newline)"
+      autocomplete="off"
+    ></textarea>
+    <div class="chat-input-actions">
+      <label class="glean-switch" title="When on, Claude can search Glean (your internal docs) to answer.">
+        <svg class="brand-icon brand-glean" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/>
+          <line x1="15.5" y1="15.5" x2="20.5" y2="20.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          <text x="11" y="14" text-anchor="middle" font-size="7" font-weight="700" fill="currentColor" font-family="ui-sans-serif, system-ui, sans-serif">G</text>
+        </svg>
+        <span class="glean-switch-label">Use Glean to answer</span>
+        <input type="checkbox" id="chat-glean-toggle" class="glean-switch-input">
+        <span class="glean-switch-track" aria-hidden="true"><span class="glean-switch-thumb"></span></span>
+      </label>
+      <button type="submit" id="chat-send" class="chat-send">
+        <svg class="brand-icon brand-claude" viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d="M12 2.2l1.9 5.9 5.9 1.9-5.9 1.9L12 17.8l-1.9-5.9L4.2 10l5.9-1.9L12 2.2zM18.5 14.5l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/>
+        </svg>
+        <span>Send</span>
+      </button>
+    </div>
+  </form>
+</aside>
+
+<script src="{{ url_for('static', filename='long-summary.js') }}"></script>
+<script>
+window.DISCUSSION_SNIPPETS = {{ discussion_snippets | tojson }};
+
+// Animated "what the model is reading" loader. Cycles a short snippet from
+// the ticket every ~2.4s with a flip animation. Returns {stop()} so the
+// caller can tear it down when the real content arrives.
+window.mountSummaryLoader = function (rootEl, opts = {}) {
+  if (!rootEl) return { stop() {} };
+  const snippets = (window.DISCUSSION_SNIPPETS || []).slice();
+  const verbs = [
+    'Reading', 'Considering', 'Cross-referencing', 'Connecting',
+    'Distilling', 'Reviewing', 'Inspecting', 'Tracing', 'Weighing', 'Parsing',
+  ];
+  const hint = opts.hint || '';
+  rootEl.innerHTML = ''
+    + '<div class="summary-loader" data-hint="' + hint.replace(/"/g, '&quot;') + '">'
+    +   '<div class="summary-loader-spinner" aria-hidden="true"></div>'
+    +   '<div class="summary-loader-body">'
+    +     '<div class="summary-loader-title">'
+    +       '<span class="summary-loader-verb">Reading</span>'
+    +       (hint ? '<span class="summary-loader-hint">· ' + hint + '</span>' : '')
+    +     '</div>'
+    +     '<div class="summary-loader-snippet" aria-live="polite"></div>'
+    +   '</div>'
+    + '</div>';
+  const verbEl = rootEl.querySelector('.summary-loader-verb');
+  const snipEl = rootEl.querySelector('.summary-loader-snippet');
+  if (!snippets.length) {
+    snipEl.textContent = 'the ticket conversation…';
+  }
+  let idx = Math.floor(Math.random() * Math.max(snippets.length, 1));
+  function tick() {
+    const text = snippets.length ? snippets[idx % snippets.length] : 'the ticket conversation…';
+    idx++;
+    snipEl.classList.remove('is-in');
+    // Force reflow so the animation restarts on every tick.
+    void snipEl.offsetWidth;
+    snipEl.textContent = '“' + text + '”';
+    snipEl.classList.add('is-in');
+    if (verbEl) verbEl.textContent = verbs[Math.floor(Math.random() * verbs.length)];
+  }
+  tick();
+  const timer = setInterval(tick, 1500);
+  return { stop() { clearInterval(timer); } };
+};
+
+// Small markdown renderer for summaries.
+// Supports: ## h3, ### h4, **bold**, `code`, "- " and "* " bullets, blank-line
+// paragraph breaks, and preserves single-newline line breaks within a paragraph.
+window.renderMarkdown = function renderMarkdown(raw) {
+  if (!raw) return '';
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Only http(s) and protocol-relative URLs survive — drops javascript:, data:,
+  // file:, etc. so a hallucinated/poisoned URL from a tool result can't XSS.
+  const safeUrl = u => /^(https?:\/\/|\/\/)/i.test(u) ? u : null;
+  const inline = s => esc(s)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, text, url) => {
+      const safe = safeUrl(url);
+      return safe
+        ? `<a href="${safe}" target="_blank" rel="noopener noreferrer">${text}</a>`
+        : text;
+    });
+  const isBullet = l => /^\s*[-*]\s+/.test(l);
+  const renderBlockLines = lines => {
+    if (!lines.length) return '';
+    if (lines.every(isBullet)) {
+      const items = lines.map(l => `<li>${inline(l.replace(/^\s*[-*]\s+/, ''))}</li>`).join('');
+      return `<ul>${items}</ul>`;
+    }
+    return `<p>${inline(lines.join('\n')).replace(/\n/g, '<br>')}</p>`;
+  };
+
+  const blocks = raw.replace(/\r\n?/g, '\n').trim().split(/\n{2,}/);
+  const out = [];
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    const m = /^(#{2,3})\s+(.+)$/.exec(lines[0]);
+    if (m) {
+      const tag = m[1].length === 2 ? 'h3' : 'h4';
+      out.push(`<${tag}>${inline(m[2])}</${tag}>`);
+      // Anything after the heading on the same block becomes its own
+      // bullet-list or paragraph rather than getting concatenated with <br>.
+      const rest = lines.slice(1).filter(l => l.trim() !== '');
+      if (rest.length) out.push(renderBlockLines(rest));
+      continue;
+    }
+    out.push(renderBlockLines(lines));
+  }
+  return out.join('');
+};
+
+// Short summary uses the small markdown renderer; long summary uses the
+// dashboard-style renderer defined in long-summary.js. The SENTIMENT line
+// is stripped server-side and rendered in the ticket header.
+(function () {
+  const shortEl = document.getElementById('short-summary-body');
+  const longEl = document.getElementById('long-summary-body');
+  if (longEl) longEl.innerHTML = renderLongSummary(longEl.textContent.trim());
+  if (!shortEl) return;
+  if (!shortEl.dataset.pending) {
+    shortEl.innerHTML = renderMarkdown(shortEl.textContent.trim());
+    return;
+  }
+  // Replace the server-rendered loader shell with the animated one so the
+  // snippet cycling kicks in immediately on page paint.
+  const loader = window.mountSummaryLoader(shortEl, { hint: '5–15 seconds' });
+  // Async path: page rendered without a cached summary, so fetch it now.
+  fetch(shortEl.dataset.url, { method: 'POST' })
+    .then(r => r.json().then(j => ({ ok: r.ok, j })))
+    .then(({ ok, j }) => {
+      loader.stop();
+      if (!ok) {
+        shortEl.innerHTML = '<p class="muted">Error: ' + (j.error || 'Failed to generate summary.') + '</p>';
+        return;
+      }
+      shortEl.innerHTML = renderMarkdown(j.content || '');
+      const sCell = document.getElementById('sentiment-cell');
+      if (sCell && j.sentiment) {
+        const s = String(j.sentiment).toLowerCase();
+        sCell.innerHTML = '<span class="sentiment-pill sentiment-' + s + '">' + j.sentiment + '</span>';
+      }
+    })
+    .catch(e => {
+      loader.stop();
+      shortEl.innerHTML = '<p class="muted">Error: ' + e.message + '</p>';
+    });
+})();
+
+// Vertical tabs
+document.querySelectorAll('.vtab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const target = tab.dataset.target;
+    document.querySelectorAll('.vtab').forEach(t => {
+      const active = t === tab;
+      t.classList.toggle('active', active);
+      t.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    document.querySelectorAll('.vtab-panel').forEach(p => {
+      const active = p.id === target;
+      p.classList.toggle('active', active);
+      p.hidden = !active;
+    });
+  });
+});
+
+// Long-summary generate button
+(function() {
+  const btn = document.getElementById('long-summary-btn');
+  const body = document.getElementById('long-summary-body');
+  if (!btn || !body) return;
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    const loader = window.mountSummaryLoader(body, { hint: 'up to a couple of minutes' });
+    try {
+      const r = await fetch(btn.dataset.url, { method: 'POST' });
+      const data = await r.json();
+      loader.stop();
+      if (!r.ok) {
+        body.innerHTML = '<p class="muted">Error: ' + (data.error || r.statusText) + '</p>';
+      } else {
+        body.innerHTML = renderLongSummary(data.content || '');
+      }
+    } catch (e) {
+      loader.stop();
+      body.innerHTML = '<p class="muted">Error: ' + e.message + '</p>';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Regenerate';
+    }
+  });
+})();
+
+// Chat panel
+(function () {
+  const openBtn = document.getElementById('chat-open');
+  const panel = document.getElementById('chat-panel');
+  const closeBtn = document.getElementById('chat-close');
+  const resetBtn = document.getElementById('chat-reset');
+  const form = document.getElementById('chat-form');
+  const input = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('chat-send');
+  const messagesEl = document.getElementById('chat-messages');
+  if (!openBtn || !panel || !form || !input || !messagesEl) return;
+
+  const url = form.dataset.url;
+  // Capture the empty-state HTML up-front so reset can restore the chips.
+  const EMPTY_STATE_HTML = messagesEl.innerHTML;
+  // Full chat history stays in memory (per page load) so we can post it back
+  // to the server on each turn — server is stateless.
+  const messages = [];
+
+  // Glean toggle (checkbox-backed slider). Persisted in localStorage so the
+  // user's preference survives page reloads. When on, the chat POST includes
+  // use_glean:true and the server allows mcp__glean__* tools.
+  const gleanInput = document.getElementById('chat-glean-toggle');
+  const GLEAN_KEY = 'chat-use-glean';
+  let useGlean = localStorage.getItem(GLEAN_KEY) === '1';
+  if (gleanInput) {
+    gleanInput.checked = useGlean;
+    gleanInput.addEventListener('change', () => {
+      useGlean = gleanInput.checked;
+      localStorage.setItem(GLEAN_KEY, useGlean ? '1' : '0');
+    });
+  }
+
+  function openPanel() {
+    panel.hidden = false;
+    document.body.classList.add('chat-open');
+    setTimeout(() => input.focus(), 50);
+  }
+  function closePanel() {
+    panel.hidden = true;
+    document.body.classList.remove('chat-open');
+  }
+  function resetChat() {
+    messages.length = 0;
+    messagesEl.innerHTML = EMPTY_STATE_HTML;
+    input.value = '';
+    input.disabled = false;
+    sendBtn.disabled = false;
+    autosize();
+    input.focus();
+  }
+
+  openBtn.addEventListener('click', openPanel);
+  closeBtn.addEventListener('click', closePanel);
+  resetBtn.addEventListener('click', resetChat);
+
+  // Suggestion chips — delegated so reset can rebuild the empty state without
+  // having to rewire each chip.
+  messagesEl.addEventListener('click', e => {
+    const chip = e.target.closest('.chat-suggestion');
+    if (chip) send(chip.textContent.trim());
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !panel.hidden) closePanel();
+  });
+
+  function renderMessage(role, content) {
+    const empty = messagesEl.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = 'chat-msg chat-msg-' + role;
+    // Reuse the page's tiny markdown renderer for assistant turns; user turns
+    // stay as plain text in a preserved-whitespace bubble.
+    if (role === 'assistant' && typeof renderMarkdown === 'function') {
+      div.innerHTML = renderMarkdown(content);
+    } else {
+      div.textContent = content;
+    }
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
+  }
+
+  function renderTyping() {
+    // The bubble holds two children:
+    //   .chat-progress-text — updated as stream events arrive (e.g. "Searching Glean…")
+    //   .chat-progress-dots — the original three pulsing dots, always visible
+    const div = document.createElement('div');
+    div.className = 'chat-msg chat-msg-assistant chat-typing';
+    div.innerHTML = '<span class="chat-progress-text">Thinking…</span>'
+      + '<span class="chat-progress-dots"><span></span><span></span><span></span></span>';
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
+  }
+
+  function setTypingMessage(typing, message) {
+    if (!typing) return;
+    const textEl = typing.querySelector('.chat-progress-text');
+    if (textEl) textEl.textContent = message;
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  async function send(text) {
+    messages.push({ role: 'user', content: text });
+    renderMessage('user', text);
+    input.value = '';
+    autosize();
+    sendBtn.disabled = true;
+    input.disabled = true;
+    const typing = renderTyping();
+
+    // Consume the NDJSON stream from /chat. Each line is one JSON event:
+    //   {type:"progress", message:"…"} — update the typing bubble's text
+    //   {type:"done",     content:"…"} — replace typing with the final reply
+    //   {type:"error",    error:"…"}   — replace typing with an error bubble
+    let finalContent = null;
+    let errorMsg = null;
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages, use_glean: useGlean }),
+      });
+      if (!r.ok || !r.body) {
+        const data = await r.json().catch(() => ({}));
+        errorMsg = data.error || r.statusText || 'Request failed';
+      } else {
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf('\n')) >= 0) {
+            const line = buf.slice(0, nl).trim();
+            buf = buf.slice(nl + 1);
+            if (!line) continue;
+            let evt;
+            try { evt = JSON.parse(line); } catch { continue; }
+            if (evt.type === 'progress') {
+              setTypingMessage(typing, evt.message || 'Working…');
+            } else if (evt.type === 'done') {
+              finalContent = (evt.content || '').trim();
+            } else if (evt.type === 'error') {
+              errorMsg = evt.error || 'Unknown error';
+            }
+          }
+        }
+      }
+    } catch (e) {
+      errorMsg = e.message;
+    }
+
+    typing.remove();
+    if (errorMsg) {
+      const errBubble = renderMessage('assistant', '_Error: ' + errorMsg + '_');
+      errBubble.classList.add('chat-msg-error');
+    } else {
+      const reply = finalContent || '';
+      messages.push({ role: 'assistant', content: reply });
+      renderMessage('assistant', reply || '_(empty response)_');
+    }
+    sendBtn.disabled = false;
+    input.disabled = false;
+    input.focus();
+  }
+
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (text) send(text);
+  });
+  // Enter to send, Shift+Enter for newline.
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  // Autosize the textarea up to ~6 rows.
+  function autosize() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+  }
+  input.addEventListener('input', autosize);
+})();
+</script>
+</body>
+</html>

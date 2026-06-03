@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CSTA Copilot — Resource Lens</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a href="{{ url_for('index') }}" class="back">← CSTA Copilot</a>
+  <div class="topbar-right">
+    <a class="topbar-settings" href="{{ url_for('settings_page') }}" title="Manage cookies">⚙ Settings</a>
+    {% if current_user and current_user.first_name %}
+      <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
+    {% endif %}
+  </div>
+</header>
+<main class="home">
+  <header class="home-header">
+    <h1>Resource <span>Lens</span></h1>
+    <div class="status-indicator">
+      {% if connected %}
+        <span class="status-dot connected" aria-hidden="true"></span>
+        <span>Connected to Confluent Cloud</span>
+      {% else %}
+        <span class="status-dot disconnected" aria-hidden="true"></span>
+        <span>Confluent Cloud cookie not set</span>
+      {% endif %}
+    </div>
+  </header>
+
+  {% if config_ok %}
+    <form class="ticket-search" id="cluster-search" method="post" action="{{ url_for('metric_cluster_search') }}" autocomplete="off">
+      <input
+        type="text"
+        name="cluster"
+        id="cluster-search-input"
+        placeholder="Jump to a cluster by ID (e.g. lkc-22xqy)"
+        required
+      >
+      <button type="submit">Search</button>
+    </form>
+    <hr class="section-separator">
+  {% endif %}
+
+  {% if not config_ok %}
+    <div class="warn">
+      <strong>Setup needed.</strong> Paste your Confluent Cloud cookie on the
+      <a href="{{ url_for('settings_page') }}">Settings page</a>.
+    </div>
+  {% elif not orgs %}
+    <div class="warn">
+      <strong>No customers configured.</strong> Add entries to <code>customers.json</code> and restart.
+    </div>
+  {% else %}
+    <h2 class="accounts-title">
+      {% if current_user and current_user.first_name %}{{ current_user.first_name }}'s Accounts{% else %}Accounts{% endif %}
+    </h2>
+    <section class="customer-list">
+      {% for org in orgs %}
+        {% if org.confluent_org_id %}
+          <a class="customer-card customer-card-link" href="{{ url_for('metric_envs', slug=org.slug) }}">
+            <div class="customer-card-name">{{ org.name }}</div>
+            <div class="customer-card-counts">
+              <span class="count-pill count-new">
+                <strong>org</strong> {{ org.confluent_org_id }}
+              </span>
+            </div>
+          </a>
+        {% else %}
+          <div class="customer-card customer-card-disabled"
+               title="Add confluent_org_id for {{ org.name }} in customers.json to enable">
+            <div class="customer-card-name">{{ org.name }}</div>
+            <div class="customer-card-counts">
+              <span class="count-pill count-pending">
+                <strong>!</strong> confluent_org_id not set
+              </span>
+            </div>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </section>
+  {% endif %}
+</main>
+
+<div id="loading-overlay" class="loading-overlay" hidden aria-live="polite">
+  <div class="loading-card">
+    <div class="loading-spinner" aria-hidden="true"></div>
+    <div class="loading-title">Loading resources</div>
+    <div class="loading-verb" id="loading-verb">Fetching environments…</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const VERBS = [
+    'Talking to Confluent Cloud…',
+    'Listing environments…',
+    'Counting clusters…',
+    'Walking the cloud…',
+    'Inspecting networks…',
+  ];
+  const overlay = document.getElementById('loading-overlay');
+  const verbEl = document.getElementById('loading-verb');
+  const titleEl = overlay ? overlay.querySelector('.loading-title') : null;
+  let verbTimer = null;
+
+  function showLoading(title) {
+    if (!overlay) return;
+    if (titleEl && title) titleEl.textContent = title;
+    overlay.hidden = false;
+    let i = Math.floor(Math.random() * VERBS.length);
+    verbEl.textContent = VERBS[i];
+    verbTimer = setInterval(() => {
+      i = (i + 1) % VERBS.length;
+      verbEl.textContent = VERBS[i];
+    }, 1800);
+    setTimeout(() => {
+      if (verbTimer) { clearInterval(verbTimer); verbTimer = null; }
+      overlay.hidden = true;
+    }, 90000);
+  }
+
+  const form = document.getElementById('cluster-search');
+  const input = document.getElementById('cluster-search-input');
+  if (form && input) {
+    form.addEventListener('submit', e => {
+      if (!/lkc-[a-z0-9]+/i.test(input.value)) {
+        e.preventDefault();
+        input.focus();
+        input.setCustomValidity('Please enter a logical Kafka cluster ID like lkc-22xqy.');
+        input.reportValidity();
+        return;
+      }
+      input.setCustomValidity('');
+      showLoading('Loading cluster details');
+    });
+    input.addEventListener('input', () => input.setCustomValidity(''));
+  }
+
+  document.querySelectorAll('.customer-card-link').forEach(card => {
+    card.addEventListener('click', e => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      showLoading('Loading environments');
+    });
+  });
+
+  window.addEventListener('pageshow', e => {
+    if (e.persisted && overlay) {
+      overlay.hidden = true;
+      if (verbTimer) { clearInterval(verbTimer); verbTimer = null; }
+    }
+  });
+})();
+</script>
+</body>
+</html>

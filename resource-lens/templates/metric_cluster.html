@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ cluster_id }} — Cluster details</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  {% if org and env_id %}
+    <a href="{{ url_for('metric_clusters', slug=org.slug, env_id=env_id) }}" class="back">← Clusters</a>
+  {% else %}
+    <a href="{{ url_for('metric_lens_home') }}" class="back">← Resource Lens</a>
+  {% endif %}
+  <div class="topbar-right">
+    <a class="topbar-settings" href="{{ url_for('settings_page') }}" title="Manage cookies">⚙ Settings</a>
+    {% if current_user and current_user.first_name %}
+      <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
+    {% endif %}
+  </div>
+</header>
+
+<section class="customer-header">
+  <div class="customer-header-top">
+    <div class="customer-name-row">
+      <h1 class="customer-name">
+        {% if org %}{{ org.name }}{% else %}Cluster{% endif %}
+        {% if cluster and cluster.name and cluster.name != cluster_id %}
+          <span class="muted"> · {{ cluster.name }}</span>
+        {% endif %}
+        <span class="metric-lens-tag">Resource Lens</span>
+      </h1>
+    </div>
+    <div class="customer-counts">
+      <span class="count-pill"><strong>{{ cluster_id }}</strong></span>
+      {% if cluster and cluster.status %}
+        <span class="status status-{{ cluster.status|lower }}">{{ cluster.status }}</span>
+      {% endif %}
+      {% if env_id %}
+        <span class="muted">Env <code>{{ env_id }}</code></span>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<div class="main">
+  {% if cluster %}
+    <section class="cluster-details">
+      <h2 class="metric-section-title">Cluster details</h2>
+      <dl class="kv-grid">
+        {% if cluster.physical_cluster_id %}
+          <dt>Physical ID</dt><dd><code>{{ cluster.physical_cluster_id }}</code></dd>
+        {% endif %}
+        {% if cluster.cloud or cluster.region %}
+          <dt>Cloud / Region</dt>
+          <dd>
+            {{ cluster.cloud }}{% if cluster.region %} / {{ cluster.region }}{% endif %}
+            {% if cluster.zones %} <span class="muted">({{ cluster.zones | join(', ') }})</span>{% endif %}
+          </dd>
+        {% endif %}
+        {% if cluster.network_type or cluster.network_id %}
+          <dt>Network</dt>
+          <dd>
+            {% if cluster.network_type %}{{ cluster.network_type }}{% endif %}
+            {% if cluster.network_id %} <code>{{ cluster.network_id }}</code>{% endif %}
+          </dd>
+        {% endif %}
+        {% if cluster.bootstrap_endpoint %}
+          <dt>Bootstrap</dt><dd><code class="break-anywhere">{{ cluster.bootstrap_endpoint }}</code></dd>
+        {% endif %}
+        {% if cluster.http_endpoint %}
+          <dt>HTTP endpoint</dt><dd><code class="break-anywhere">{{ cluster.http_endpoint }}</code></dd>
+        {% endif %}
+        {% if cluster.k8s_cluster_id %}
+          <dt>K8s cluster</dt><dd><code>{{ cluster.k8s_cluster_id }}</code></dd>
+        {% endif %}
+        {% if cluster.pending_cku %}
+          <dt>Pending CKU</dt><dd>{{ cluster.pending_cku }} <span class="muted">(resize in progress)</span></dd>
+        {% endif %}
+        {% if cluster.created %}
+          <dt>Created</dt><dd><span class="muted">{{ cluster.created }}</span></dd>
+        {% endif %}
+        {% if cluster.modified %}
+          <dt>Modified</dt><dd><span class="muted">{{ cluster.modified }}</span></dd>
+        {% endif %}
+      </dl>
+    </section>
+  {% else %}
+    <p class="muted empty-state">
+      No cluster details available. Enter via a customer's environment list to see full details.
+    </p>
+  {% endif %}
+</div>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CSTA Copilot</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <span></span>
+  <div class="topbar-right">
+    {% if current_user and current_user.first_name %}
+      <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
+    {% endif %}
+  </div>
+</header>
+<main class="home">
+  <header class="home-header">
+    <h1>CSTA <span>Copilot</span></h1>
+    <p class="home-subtitle">Pick a lens to get started.</p>
+  </header>
+
+  <section class="lens-tiles">
+    {% macro tile_status_row(status) %}
+      <div class="lens-tile-status" title="{{ status.detail }}">
+        {% if status.ok is sameas true %}
+          <span class="status-dot connected" aria-hidden="true"></span>
+        {% elif status.ok is sameas false %}
+          <span class="status-dot disconnected" aria-hidden="true"></span>
+        {% else %}
+          <span class="status-dot unknown" aria-hidden="true"></span>
+        {% endif %}
+        <span class="lens-tile-status-label">{{ status.label }}</span>
+        <span class="muted small lens-tile-status-detail">{{ status.detail }}</span>
+      </div>
+    {% endmacro %}
+
+    {% if ticket_status.ok is sameas false %}
+      <div class="lens-tile lens-tile-ticket lens-tile-disabled" aria-disabled="true">
+        <div class="lens-tile-icon" aria-hidden="true">🎫</div>
+        <div class="lens-tile-name">Ticket Lens</div>
+        <div class="lens-tile-desc">Browse customer tickets and prep call briefs.</div>
+        {{ tile_status_row(ticket_status) }}
+        <div class="lens-tile-cta">
+          <span>Not connected to Zendesk. Run <code>capture_cookies.py</code> to set <code>ZENDESK_COOKIE</code> in <code>.env</code>, then restart.</span>
+        </div>
+      </div>
+    {% else %}
+      <a class="lens-tile lens-tile-ticket" href="{{ url_for('ticket_lens_home') }}">
+        <div class="lens-tile-icon" aria-hidden="true">🎫</div>
+        <div class="lens-tile-name">Ticket Lens</div>
+        <div class="lens-tile-desc">Browse customer tickets and prep call briefs.</div>
+        {{ tile_status_row(ticket_status) }}
+      </a>
+    {% endif %}
+  </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CSTA Copilot — Settings</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a href="{{ url_for('index') }}" class="back">← CSTA Copilot</a>
+  {% if current_user and current_user.first_name %}
+    <div class="topbar-right">
+      <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
+    </div>
+  {% endif %}
+</header>
+
+<main class="home">
+  <header class="home-header">
+    <h1>Cookie <span>Settings</span></h1>
+    <p class="home-subtitle">Paste a "Copy as cURL" or a raw cookie string. Each section is independent.</p>
+  </header>
+
+  {% if flash %}
+    <div class="flash" role="status">{{ flash }}</div>
+  {% endif %}
+
+  {% for s in sections %}
+    <section class="settings-card">
+      <div class="settings-card-head">
+        <div>
+          <h2 class="settings-card-title">{{ s.title }}</h2>
+          <p class="settings-card-desc">
+            {% if s.title == 'Zendesk' and subdomain %}
+              {{ s.description.replace('{subdomain}', subdomain) }}
+            {% else %}
+              {{ s.description }}
+            {% endif %}
+          </p>
+        </div>
+        <div class="settings-card-status">
+          {% if not s.cookie_present %}
+            <span class="status-dot disconnected" aria-hidden="true"></span>
+            <span>Not set</span>
+          {% elif s.status_ok is sameas false %}
+            <span class="status-dot disconnected" aria-hidden="true"></span>
+            <span>
+              <strong>Disconnected</strong>
+              <span class="muted">· {{ s.value_len }} chars</span>
+              {% if s.updated_at %}<span class="muted">· saved {{ s.updated_at }}</span>{% endif %}
+            </span>
+          {% elif s.status_ok is sameas true %}
+            <span class="status-dot connected" aria-hidden="true"></span>
+            <span>
+              <strong>Connected</strong>
+              <span class="muted">· {{ s.value_len }} chars</span>
+              {% if s.updated_at %}<span class="muted">· saved {{ s.updated_at }}</span>{% endif %}
+            </span>
+          {% else %}
+            <span class="status-dot unknown" aria-hidden="true"></span>
+            <span>
+              <strong>Cookie set</strong>
+              <span class="muted">· {{ s.value_len }} chars</span>
+              {% if s.updated_at %}<span class="muted">· saved {{ s.updated_at }}</span>{% endif %}
+            </span>
+          {% endif %}
+          {% if s.status_detail %}
+            <div class="muted small">{{ s.status_detail }}</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <details class="settings-how-to">
+        <summary>How to get this cookie</summary>
+        <p class="muted">{{ s.how_to }}</p>
+      </details>
+
+      <form method="post" action="{{ url_for('settings_save') }}" class="settings-form">
+        <textarea
+          name="{{ s.form_key }}"
+          class="settings-textarea"
+          placeholder="Paste curl command or cookie string here…"
+          spellcheck="false"
+          autocomplete="off"
+          autocapitalize="off"
+          rows="5"
+        ></textarea>
+        <div class="settings-form-actions">
+          <button type="submit" class="settings-save">Save {{ s.title }}</button>
+          {% if s.cookie_present %}
+            <button type="submit" name="clear" value="{{ s.form_key }}" class="settings-clear"
+                    onclick="return confirm('Clear the stored cookie for {{ s.title }}? You will need to paste it again to reconnect.');">
+              Clear
+            </button>
+          {% endif %}
+        </div>
+      </form>
+    </section>
+  {% endfor %}
+</main>
+
+<script>
+(function () {
+  // When you paste, let the textarea preview the detected source so you know
+  // the parser will be happy before you click Save.
+  function annotate(textarea) {
+    const v = textarea.value.trim();
+    if (!v) {
+      textarea.style.borderColor = '';
+      return;
+    }
+    const looksCurl = /^curl\s/i.test(v);
+    textarea.style.borderColor = looksCurl ? 'var(--accent-2)' : 'var(--good)';
+    textarea.title = looksCurl ? 'Detected as curl command' : 'Detected as raw cookie string';
+  }
+  document.querySelectorAll('.settings-textarea').forEach(t => {
+    t.addEventListener('input', () => annotate(t));
+    t.addEventListener('paste', () => setTimeout(() => annotate(t), 0));
+  });
+})();
+</script>
+</body>
+</html>

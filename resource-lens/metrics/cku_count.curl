@@ -1,0 +1,25 @@
+curl 'https://grafana.telemetry.aws.confluent.cloud/api/ds/query?ds_type=confluent-metricsapi-datasource&requestId=SQR126' \
+  -H 'Accept-Language: en-GB,en-US;q=0.9,en;q=0.8' \
+  -H 'Connection: keep-alive' \
+  -b "$GRAFANA_TELEMETRY_COOKIE" \
+  -H 'Origin: https://grafana.telemetry.aws.confluent.cloud' \
+  -H 'Referer: https://grafana.telemetry.aws.confluent.cloud/d/45ee9755-42d5-413f-96b9-39d959f86ff2/ccloud-metrics3a-kafka?orgId=1&from=now-24h&to=now-1h&timezone=browser&var-resourceKafkaId=lkc-22xqy&var-physicalClusterId=pkc-4j9q8&var-resourceKafkaIdNumber=22xqy&editPanel=63' \
+  -H 'Sec-Fetch-Dest: empty' \
+  -H 'Sec-Fetch-Mode: cors' \
+  -H 'Sec-Fetch-Site: same-origin' \
+  -H 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36' \
+  -H 'accept: application/json, text/plain, */*' \
+  -H 'content-type: application/json' \
+  -H 'sec-ch-ua: "Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"' \
+  -H 'sec-ch-ua-mobile: ?0' \
+  -H 'sec-ch-ua-platform: "macOS"' \
+  -H 'x-dashboard-title: CCloud Metrics: Kafka' \
+  -H 'x-dashboard-uid: 45ee9755-42d5-413f-96b9-39d959f86ff2' \
+  -H 'x-datasource-uid: _CfltMtrApgn' \
+  -H 'x-grafana-device-id: b3a08836b486558fb96279437d206043' \
+  -H 'x-grafana-org-id: 1' \
+  -H 'x-panel-id: 63' \
+  -H 'x-panel-plugin-id: timeseries' \
+  -H 'x-panel-title: Dedicated CKU Count' \
+  -H 'x-plugin-id: confluent-metricsapi-datasource' \
+  --data-raw '{"queries":[{"dataType":"query","datasource":{"type":"confluent-metricsapi-datasource","uid":"_CfltMtrApgn"},"queryType":"raw","rawQuery":"{\n    \"aggregations\": [\n        {\n            \"metric\": \"io.confluent.kafka.server/dedicated_cku_count\"\n        }\n    ],\n    \"filter\": {\n        \"field\": \"resource.kafka.id\",\n        \"op\": \"EQ\",\n        \"value\": \"lkc-22xqy\"\n    }\n}","refId":"A","view":"cloud","datasourceId":5,"intervalMs":60000,"maxDataPoints":1358}],"from":"1779885718272","to":"1779968518272"}'

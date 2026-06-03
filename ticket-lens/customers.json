@@ -1,0 +1,29 @@
+{
+  "customers": [
+    {
+      "name": "Swiggy",
+      "slug": "swiggy",
+      "zendesk_org_id": 360770894011
+    },
+    {
+      "name": "Groww",
+      "slug": "groww",
+      "zendesk_org_id": 34174770804756
+    },
+    {
+      "name": "Myntra",
+      "slug": "myntra",
+      "zendesk_org_id": 21394371281044
+    },
+    {
+      "name": "Glance",
+      "slug": "glance",
+      "zendesk_org_id": 6253807275028
+    },
+    {
+      "name": "ADCB",
+      "slug": "adcb",
+      "zendesk_org_id": 1900158087027
+    }
+  ]
+}

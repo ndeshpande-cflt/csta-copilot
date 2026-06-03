@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ org.name }} — Open &amp; pending tickets</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a href="{{ url_for('ticket_lens_home') }}" class="back">← Ticket Lens</a>
+  <div class="topbar-right">
+    <a href="?refresh=1" class="refresh" id="customer-refresh" title="Bypass cache and fetch the latest tickets">↻ Refresh</a>
+    {% if current_user and current_user.first_name %}
+      <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
+    {% endif %}
+  </div>
+</header>
+
+<section class="customer-header">
+  <div class="customer-header-top">
+    <div class="customer-name-row">
+      <h1 class="customer-name">{{ org.name }}</h1>
+      {% if subdomain %}
+        <a href="https://{{ subdomain }}.zendesk.com/agent/organizations/{{ org.id }}/tickets"
+           class="org-tickets-link" target="_blank" rel="noopener"
+           title="Open all of {{ org.name }}'s tickets in Zendesk">
+          View all tickets in Zendesk ↗
+        </a>
+      {% endif %}
+    </div>
+    <div class="customer-counts">
+      <span class="count-pill count-new"><strong>{{ new_count }}</strong> new</span>
+      <span class="count-pill count-open"><strong>{{ open_count }}</strong> open</span>
+      <span class="count-pill count-pending"><strong>{{ pending_count }}</strong> pending</span>
+      {% if truncated %}<span class="muted">(showing latest {{ total_count }}; more exist)</span>{% endif %}
+    </div>
+  </div>
+  {% if priority_counts %}
+    <div class="priority-breakdown">
+      <span class="priority-breakdown-label">By priority:</span>
+      {% for pc in priority_counts %}
+        <span class="count-pill count-prio-{{ pc.name }}"><strong>{{ pc.count }}</strong> {{ pc.name | prio_label }}</span>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>
+
+<div class="main">
+  {% if tickets %}
+    <table class="ticket-list">
+      <thead>
+        <tr>
+          <th class="col-id">#</th>
+          <th class="col-subject">Subject</th>
+          <th class="col-status">Status</th>
+          <th class="col-prio">Priority</th>
+          <th class="col-date">Opened</th>
+          <th class="col-date">Modified</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in tickets %}
+          <tr class="ticket-row" data-href="{{ url_for('view_ticket', ticket_id=t.id) }}">
+            <td class="col-id"><a href="{{ url_for('view_ticket', ticket_id=t.id) }}" class="ticket-id-link">#{{ t.id }}</a></td>
+            <td class="col-subject">{{ t.subject }}</td>
+            <td class="col-status"><span class="status status-{{ t.status }}">{{ t.status }}</span></td>
+            <td class="col-prio"><span class="prio prio-{{ t.priority }}">{{ t.priority | prio_label }}</span></td>
+            <td class="col-date">{{ t.created_at }}</td>
+            <td class="col-date">{{ t.updated_at }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted empty-state">No open or pending tickets for {{ org.name }}.</p>
+  {% endif %}
+</div>
+
+<div id="loading-overlay" class="loading-overlay" hidden aria-live="polite">
+  <div class="loading-card">
+    <div class="loading-spinner" aria-hidden="true"></div>
+    <div class="loading-title">Building ticket details</div>
+    <div class="loading-verb" id="loading-verb">Fetching ticket…</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const VERBS = [
+    'Fetching ticket…',
+    'Reading conversation…',
+    'Decoding emojis…',
+    'Summoning Claude…',
+    'Distilling the issue…',
+    'Sniffing sentiment…',
+    'Spotting frustration…',
+    'Connecting dots…',
+    'Drafting the brief…',
+    'Polishing pixels…',
+  ];
+  const overlay = document.getElementById('loading-overlay');
+  const verbEl = document.getElementById('loading-verb');
+  const titleEl = overlay ? overlay.querySelector('.loading-title') : null;
+  let verbTimer = null;
+
+  function isModifiedClick(e) {
+    return e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0;
+  }
+
+  function showLoading(title) {
+    if (!overlay) return;
+    if (titleEl && title) titleEl.textContent = title;
+    overlay.hidden = false;
+    let i = Math.floor(Math.random() * VERBS.length);
+    verbEl.textContent = VERBS[i];
+    verbTimer = setInterval(() => {
+      i = (i + 1) % VERBS.length;
+      verbEl.textContent = VERBS[i];
+    }, 1800);
+    // Safety net: if navigation never happens, drop the overlay after 90s.
+    setTimeout(() => {
+      if (verbTimer) { clearInterval(verbTimer); verbTimer = null; }
+      overlay.hidden = true;
+    }, 90000);
+  }
+
+  const refreshLink = document.getElementById('customer-refresh');
+  if (refreshLink) {
+    refreshLink.addEventListener('click', e => {
+      if (isModifiedClick(e)) return;
+      showLoading('Refreshing tickets');
+    });
+  }
+
+  document.querySelectorAll('.ticket-row').forEach(row => {
+    row.addEventListener('click', e => {
+      if (isModifiedClick(e)) return;
+      // If the user clicked the inline ticket-id link, let it handle nav
+      // (its own listener fires showLoading and the browser navigates).
+      if (e.target.closest('a')) return;
+      showLoading('Building ticket details');
+      window.location.href = row.dataset.href;
+    });
+  });
+
+  document.querySelectorAll('.ticket-id-link').forEach(a => {
+    a.addEventListener('click', e => {
+      if (isModifiedClick(e)) return;
+      showLoading('Building ticket details');
+    });
+  });
+
+  // If the page is restored from the bfcache (browser back), hide the overlay.
+  window.addEventListener('pageshow', e => {
+    if (e.persisted && overlay) {
+      overlay.hidden = true;
+      if (verbTimer) { clearInterval(verbTimer); verbTimer = null; }
+    }
+  });
+})();
+</script>
+</body>
+</html>

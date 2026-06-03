@@ -22,3 +22,28 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# --- Python / Ticket Lens app ---
+# Secrets & per-user config — never share
+.env
+# Local cache: contains cached tickets AND saved Zendesk/Confluent cookies (PII)
+cache.db
+cache.db-journal
+cache.db-wal
+cache.db-shm
+
+# Virtual environments
+.venv/
+venv/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Scratch
+temp.txt
+
+# macOS
+.DS_Store

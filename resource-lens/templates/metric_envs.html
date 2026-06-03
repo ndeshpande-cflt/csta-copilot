@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ org.name }} — Environments</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a href="{{ url_for('metric_lens_home') }}" class="back">← Resource Lens</a>
+  <div class="topbar-right">
+    <a href="?refresh=1" class="refresh" title="Bypass cache and re-fetch environments">↻ Refresh</a>
+    {% if current_user and current_user.first_name %}
+      <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
+    {% endif %}
+  </div>
+</header>
+
+<section class="customer-header">
+  <div class="customer-header-top">
+    <div class="customer-name-row">
+      <h1 class="customer-name">{{ org.name }} <span class="metric-lens-tag">Resource Lens</span></h1>
+    </div>
+    <div class="customer-counts">
+      <span class="count-pill"><strong>{{ envs|length }}</strong> environments</span>
+      <span class="muted">Confluent org id: {{ org.confluent_org_id }}</span>
+    </div>
+  </div>
+</section>
+
+<div class="main">
+  {% if envs %}
+    <table class="ticket-list">
+      <thead>
+        <tr>
+          <th class="col-id">ID</th>
+          <th class="col-subject">Name</th>
+          <th class="col-status">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in envs %}
+          <tr class="ticket-row" data-href="{{ url_for('metric_clusters', slug=org.slug, env_id=e.id) }}">
+            <td class="col-id"><a href="{{ url_for('metric_clusters', slug=org.slug, env_id=e.id) }}" class="ticket-id-link">{{ e.id }}</a></td>
+            <td class="col-subject">{{ e.name }}</td>
+            <td class="col-status">
+              {% if e.deactivated %}
+                <span class="status status-closed">deactivated</span>
+              {% else %}
+                <span class="status status-open">active</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted empty-state">
+      No environments found for {{ org.name }}. Verify <code>confluent_org_id</code>
+      in <code>customers.json</code> and that your Confluent Cloud cookie is fresh on the
+      <a href="{{ url_for('settings_page') }}">Settings page</a>.
+    </p>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  document.querySelectorAll('.ticket-row').forEach(row => {
+    row.addEventListener('click', e => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      if (e.target.closest('a')) return;
+      window.location.href = row.dataset.href;
+    });
+  });
+})();
+</script>
+</body>
+</html>

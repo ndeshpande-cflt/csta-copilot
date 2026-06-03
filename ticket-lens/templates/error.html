@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error — CSTA Ticket Lens</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+{% if current_user and current_user.first_name %}
+  <header class="topbar">
+    <div class="topbar-right">
+      <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
+    </div>
+  </header>
+{% endif %}
+<main class="home error-page">
+  <h1 class="error-title">Something's off</h1>
+  <div class="warn">{{ message }}</div>
+  <p class="error-actions">
+    <a class="home-link" href="{{ url_for('index') }}">← Home</a>
+  </p>
+</main>
+</body>
+</html>

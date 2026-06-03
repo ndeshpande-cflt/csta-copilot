@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CSTA Copilot — Ticket Lens</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a href="{{ url_for('index') }}" class="back">← CSTA Copilot</a>
+  <div class="topbar-right">
+    {% if current_user and current_user.first_name %}
+      <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
+    {% endif %}
+  </div>
+</header>
+<main class="home">
+  <header class="home-header">
+    <h1>Ticket <span>Lens</span></h1>
+    <div class="status-indicator">
+      {% if connected %}
+        <span class="status-dot connected" aria-hidden="true"></span>
+        <span>Connected to Zendesk</span>
+      {% else %}
+        <span class="status-dot disconnected" aria-hidden="true"></span>
+        <span>Disconnected</span>
+      {% endif %}
+    </div>
+  </header>
+
+  {% if config_ok %}
+    <form class="ticket-search" id="ticket-search" method="post" action="{{ url_for('ticket_form') }}" autocomplete="off">
+      <input
+        type="text"
+        name="ticket"
+        id="ticket-search-input"
+        placeholder="Search by ticket ID (e.g. 12345 or a Zendesk URL)"
+        required
+      >
+      <button type="submit">Search</button>
+    </form>
+    <hr class="section-separator">
+  {% endif %}
+
+  {% if not config_ok %}
+    <div class="warn">
+      <strong>Setup needed.</strong> Set <code>ZENDESK_SUBDOMAIN</code> in <code>.env</code>, then run <code>capture_cookies.py</code> to populate <code>ZENDESK_COOKIE</code> and restart the app.
+    </div>
+  {% elif not orgs %}
+    <div class="warn">
+      <strong>No customers configured.</strong> Add entries to <code>customers.json</code> and restart.
+    </div>
+  {% else %}
+    <h2 class="accounts-title">
+      {% if current_user and current_user.first_name %}{{ current_user.first_name }}'s Accounts{% else %}Accounts{% endif %}
+    </h2>
+    <section class="customer-list">
+      {% for org in orgs %}
+        <a class="customer-card customer-card-link" href="{{ url_for('view_customer', slug=org.slug) }}">
+          <div class="customer-card-name">{{ org.name }}</div>
+          {% if org.error %}
+            <div class="customer-card-error">{{ org.error }}</div>
+          {% else %}
+            <div class="customer-card-counts">
+              <span class="count-pill count-new">
+                <strong>{{ org.new_count }}{% if org.truncated %}+{% endif %}</strong> new
+              </span>
+              <span class="count-pill count-open">
+                <strong>{{ org.open_count }}{% if org.truncated %}+{% endif %}</strong> open
+              </span>
+              <span class="count-pill count-pending">
+                <strong>{{ org.pending_count }}{% if org.truncated %}+{% endif %}</strong> pending
+              </span>
+            </div>
+          {% endif %}
+        </a>
+      {% endfor %}
+    </section>
+  {% endif %}
+</main>
+
+<div id="loading-overlay" class="loading-overlay" hidden aria-live="polite">
+  <div class="loading-card">
+    <div class="loading-spinner" aria-hidden="true"></div>
+    <div class="loading-title">Building ticket details</div>
+    <div class="loading-verb" id="loading-verb">Fetching ticket…</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const VERBS = [
+    'Fetching ticket…',
+    'Reading conversation…',
+    'Decoding emojis…',
+    'Summoning Claude…',
+    'Distilling the issue…',
+    'Sniffing sentiment…',
+    'Spotting frustration…',
+    'Connecting dots…',
+    'Drafting the brief…',
+    'Polishing pixels…',
+  ];
+  const overlay = document.getElementById('loading-overlay');
+  const verbEl = document.getElementById('loading-verb');
+  const titleEl = overlay ? overlay.querySelector('.loading-title') : null;
+  let verbTimer = null;
+
+  function showLoading(title) {
+    if (!overlay) return;
+    if (titleEl && title) titleEl.textContent = title;
+    overlay.hidden = false;
+    let i = Math.floor(Math.random() * VERBS.length);
+    verbEl.textContent = VERBS[i];
+    verbTimer = setInterval(() => {
+      i = (i + 1) % VERBS.length;
+      verbEl.textContent = VERBS[i];
+    }, 1800);
+    setTimeout(() => {
+      if (verbTimer) { clearInterval(verbTimer); verbTimer = null; }
+      overlay.hidden = true;
+    }, 90000);
+  }
+
+  const form = document.getElementById('ticket-search');
+  const input = document.getElementById('ticket-search-input');
+  if (form && input) {
+    form.addEventListener('submit', e => {
+      if (!/\d/.test(input.value)) {
+        e.preventDefault();
+        input.focus();
+        input.setCustomValidity('Please enter a ticket ID (a number) or a Zendesk URL.');
+        input.reportValidity();
+        return;
+      }
+      input.setCustomValidity('');
+      showLoading('Building ticket details');
+    });
+    input.addEventListener('input', () => input.setCustomValidity(''));
+  }
+
+  document.querySelectorAll('.customer-card-link').forEach(card => {
+    card.addEventListener('click', e => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      showLoading('Loading customer tickets');
+    });
+  });
+
+  window.addEventListener('pageshow', e => {
+    if (e.persisted && overlay) {
+      overlay.hidden = true;
+      if (verbTimer) { clearInterval(verbTimer); verbTimer = null; }
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ org.name }} — Clusters in {{ env_id }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a href="{{ url_for('metric_envs', slug=org.slug) }}" class="back">← Environments</a>
+  <div class="topbar-right">
+    <a href="?refresh=1" class="refresh" title="Bypass cache and re-fetch clusters">↻ Refresh</a>
+    {% if current_user and current_user.first_name %}
+      <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
+    {% endif %}
+  </div>
+</header>
+
+<section class="customer-header">
+  <div class="customer-header-top">
+    <div class="customer-name-row">
+      <h1 class="customer-name">{{ org.name }} <span class="metric-lens-tag">Resource Lens</span></h1>
+    </div>
+    <div class="customer-counts">
+      <span class="count-pill"><strong>{{ clusters|length }}</strong> clusters</span>
+      <span class="muted">Environment: <code>{{ env_id }}</code></span>
+    </div>
+  </div>
+</section>
+
+<div class="main">
+  {% if clusters %}
+    <table class="ticket-list">
+      <thead>
+        <tr>
+          <th class="col-id">Logical ID</th>
+          <th class="col-subject">Name</th>
+          <th>Status</th>
+          <th>Cloud / Region</th>
+          <th>Physical ID</th>
+          <th>Network</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in clusters %}
+          <tr class="ticket-row" data-href="{{ url_for('metric_cluster', slug=org.slug, env_id=env_id, cluster_id=c.id) }}">
+            <td class="col-id"><a href="{{ url_for('metric_cluster', slug=org.slug, env_id=env_id, cluster_id=c.id) }}" class="ticket-id-link">{{ c.id }}</a></td>
+            <td class="col-subject">
+              {{ c.name }}
+              {% if c.pending_cku %}
+                <span class="count-pill count-pending" title="Resize in progress"><strong>{{ c.pending_cku }}</strong> pending CKU</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if c.status %}
+                <span class="status status-{{ c.status|lower }}">{{ c.status }}</span>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if c.cloud or c.region %}
+                {{ c.cloud }}{% if c.region %} / {{ c.region }}{% endif %}
+                {% if c.zones %}<div class="muted small">{{ c.zones | join(', ') }}</div>{% endif %}
+              {% else %}—{% endif %}
+            </td>
+            <td>{% if c.physical_cluster_id %}<code>{{ c.physical_cluster_id }}</code>{% else %}—{% endif %}</td>
+            <td>
+              {% if c.network_type %}{{ c.network_type }}{% endif %}
+              {% if c.network_id %}<div class="muted small"><code>{{ c.network_id }}</code></div>{% endif %}
+              {% if not c.network_type and not c.network_id %}—{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted empty-state">No Kafka clusters found in environment {{ env_id }}.</p>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  document.querySelectorAll('.ticket-row').forEach(row => {
+    row.addEventListener('click', e => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      if (e.target.closest('a')) return;
+      window.location.href = row.dataset.href;
+    });
+  });
+})();
+</script>
+</body>
+</html>
