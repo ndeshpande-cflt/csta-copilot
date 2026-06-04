@@ -32,6 +32,12 @@ cd "$SCRIPT_DIR"
 PYTHON_MIN_MAJOR=3
 PYTHON_MIN_MINOR=9
 
+# Success marker run.sh checks before launching. Cleared up front so a failed or
+# interrupted setup never leaves a stale "complete" flag behind; rewritten only
+# if every required check passes (see the verdict at the end).
+SETUP_MARKER=".setup-complete"
+rm -f "$SETUP_MARKER"
+
 printf "\n${BOLD}CSTA Copilot — setup${RESET}\n"
 printf "${DIM}%s${RESET}\n\n" "$SCRIPT_DIR"
 
@@ -64,14 +70,61 @@ if [ -f .env ]; then
   [ -n "$ENV_CLAUDE" ] && CLAUDE_CMD="$ENV_CLAUDE"
 fi
 
+CLAUDE_PRESENT=0
 if command -v "$CLAUDE_CMD" >/dev/null 2>&1; then
   CLAUDE_VER="$("$CLAUDE_CMD" --version 2>/dev/null | head -1)"
   note "$PASS" "Claude Code CLI found (${CLAUDE_CMD}${CLAUDE_VER:+ — $CLAUDE_VER})"
+  CLAUDE_PRESENT=1
 else
   note "$FAIL" "Claude Code CLI '$CLAUDE_CMD' not found on PATH"
   detail "Install it — https://docs.claude.com/en/docs/claude-code/setup"
   detail "If it's installed elsewhere, set CLAUDE_CMD to its full path in .env"
   FAILED=1
+fi
+
+# Run a command with a hard timeout, even on macOS (no coreutils `timeout`).
+# Forks, alarms, and kills the child if it overruns. Exit 124 on timeout.
+with_timeout() {
+  perl -e '
+    my $t = shift;
+    my $pid = fork();
+    exit 127 unless defined $pid;
+    if ($pid == 0) { exec @ARGV or exit 127; }
+    local $SIG{ALRM} = sub { kill "TERM", $pid; sleep 1; kill "KILL", $pid; exit 124; };
+    alarm $t;
+    waitpid($pid, 0);
+    exit($? >> 8);
+  ' "$@"
+}
+
+# --- 2b. Claude Code access ------------------------------------------------
+# `claude --version` only proves it's installed, not that it can actually run.
+# The app calls `claude -p` with the ANTHROPIC_* env vars stripped, so a friend
+# whose CLI is installed but not signed in (or relying on an API key the app
+# ignores) passes the version check but fails on the first real call. Probe it.
+if [ "$CLAUDE_PRESENT" = "1" ]; then
+  printf "  ${DIM}…checking Claude access (runs one quick prompt)${RESET}\n"
+  PROBE_ERR="$(mktemp 2>/dev/null || echo /tmp/claude_probe_err.$$)"
+  PROBE_OUT="$(printf 'Reply with exactly: OK' | with_timeout 90 \
+      env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL \
+          -u ANTHROPIC_MODEL -u CLAUDE_CODE_USE_BEDROCK -u CLAUDE_CODE_USE_VERTEX \
+          "$CLAUDE_CMD" -p --strict-mcp-config --tools "" 2>"$PROBE_ERR")"
+  PROBE_RC=$?
+  if [ "$PROBE_RC" -eq 0 ] && [ -n "$PROBE_OUT" ]; then
+    note "$PASS" "Claude Code access OK — it responded to a test prompt"
+  elif [ "$PROBE_RC" -eq 124 ]; then
+    note "$FAIL" "Claude Code didn't respond within 90s"
+    detail "Run 'claude' once interactively to finish first-time setup, then re-run ./setup.sh"
+    FAILED=1
+  else
+    note "$FAIL" "Claude Code is installed but couldn't run a prompt (likely not signed in)"
+    ERRMSG="$(tr -d '\r' < "$PROBE_ERR" 2>/dev/null | grep -v '^[[:space:]]*$' | tail -2 | tr '\n' ' ')"
+    [ -n "$ERRMSG" ] && detail "claude said: $(printf '%s' "$ERRMSG" | cut -c1-200)"
+    detail "Sign in: run 'claude' and complete /login (or 'claude setup-token'), then re-run ./setup.sh"
+    detail "Heads up: this app ignores ANTHROPIC_API_KEY — it uses your logged-in Claude session."
+    FAILED=1
+  fi
+  rm -f "$PROBE_ERR" 2>/dev/null
 fi
 
 # --- 3. .env config --------------------------------------------------------
@@ -174,5 +227,6 @@ if [ "$FAILED" -ne 0 ]; then
   exit 1
 fi
 
+printf "ok %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SETUP_MARKER"
 printf "${GREEN}${BOLD}Setup complete.${RESET}\n"
 printf "Start the app with ${BOLD}./run.sh${RESET}\n\n"

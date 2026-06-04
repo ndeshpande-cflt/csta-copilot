@@ -464,6 +464,8 @@ code { font-family: var(--font-mono); background: var(--panel-2); padding: 1px 5
   .col-date { width: auto; }
 }
 .empty-state { text-align: center; padding: 40px 20px; }
+.listing-hint { margin-top: 18px; font-size: 0.9rem; }
+.listing-hint a { color: var(--accent); }
 
 /* Loading overlay (shown during navigation to a ticket detail page) */
 .loading-overlay {
@@ -633,9 +635,9 @@ code { font-family: var(--font-mono); background: var(--panel-2); padding: 1px 5
   .vtab.active { border-left: none; border-bottom-color: var(--accent); }
 }
 
-.vtab-panels { padding: 24px; min-width: 0; }
+.vtab-panels { padding: 24px; min-width: 0; display: flex; flex-direction: column; }
 .vtab-panel { display: none; }
-.vtab-panel.active { display: block; }
+.vtab-panel.active { display: block; flex: 1 1 auto; min-height: 0; }
 
 .brief-body h3 {
   color: var(--accent); font-size: 0.95rem; font-weight: 700;
@@ -665,11 +667,20 @@ code { font-family: var(--font-mono); background: var(--panel-2); padding: 1px 5
   display: flex; align-items: center; justify-content: flex-end;
   margin-bottom: 16px;
 }
+/* Before a long summary exists, center the Generate button in the panel
+   (both axes). Once content is generated the body is no longer :empty, so the
+   header reverts to its top-right position above the summary. */
+#tab-long.active { display: flex; flex-direction: column; }
+#tab-long:has(#long-summary-body:empty) .long-summary-header {
+  flex: 1 1 auto; align-items: center; justify-content: center; margin-bottom: 0;
+}
 .gen-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   padding: 6px 14px; font-size: 0.85rem; font-weight: 600;
   background: var(--accent); color: #1a1410; border: none; border-radius: 4px;
   cursor: pointer; font-family: var(--font-sans);
 }
+.gen-btn-icon { width: 15px; height: 15px; flex: none; }
 .gen-btn:hover:not(:disabled) { background: #f4c483; }
 .gen-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 #long-summary-body:empty { display: none; }

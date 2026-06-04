@@ -33,10 +33,18 @@ export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.claude/loc
 PORT=5001
 VENV_PY=".venv/bin/python"
 OPEN_URL="http://localhost:$PORT/tickets"
+SETUP_MARKER=".setup-complete"
 
-# --- guard: prerequisites must be set up -----------------------------------
+# --- guard: setup must have completed successfully -------------------------
+# setup.sh writes .setup-complete only when every required check passes (Python,
+# Claude access, deps, …) and clears it otherwise. No marker → setup wasn't done
+# or didn't finish cleanly, so refuse to launch.
+if [ ! -f "$SETUP_MARKER" ]; then
+  printf "${RED}Setup not complete.${RESET} Run ${BOLD}./setup.sh${RESET} first (it must finish with \"Setup complete\").\n"
+  exit 1
+fi
 if [ ! -x "$VENV_PY" ]; then
-  printf "${RED}Not set up yet.${RESET} Run ${BOLD}./setup.sh${RESET} first.\n"
+  printf "${RED}Setup looks incomplete${RESET} (no virtualenv). Re-run ${BOLD}./setup.sh${RESET}.\n"
   exit 1
 fi
 

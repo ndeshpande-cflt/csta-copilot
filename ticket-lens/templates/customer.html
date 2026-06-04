@@ -75,6 +75,11 @@
   {% else %}
     <p class="muted empty-state">No open or pending tickets for {{ org.name }}.</p>
   {% endif %}
+
+  <p class="muted listing-hint">
+    Don't see the ticket you're looking for?
+    <a href="{{ url_for('ticket_lens_home') }}#ticket-search-input">Search for it by ID</a>.
+  </p>
 </div>
 
 <div id="loading-overlay" class="loading-overlay" hidden aria-live="polite">

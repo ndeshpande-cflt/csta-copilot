@@ -7,7 +7,10 @@ Claude Code CLI.
 ## Prerequisites
 
 - Python 3.9+
-- Claude Code installed and working — verify with `claude --version`
+- Claude Code installed **and signed in** — run `claude` once and complete
+  `/login` (or `claude setup-token`). `claude --version` only proves it's
+  installed; the app needs an authenticated session, and it ignores
+  `ANTHROPIC_API_KEY`. (`setup.sh` verifies this with a quick test prompt.)
 - Browser access to Zendesk
 - The **Glean MCP server** added to Claude Code (the briefs and chat use it) —
   see below.

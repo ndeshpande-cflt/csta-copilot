@@ -45,6 +45,9 @@ __pycache__/
 # Scratch
 temp.txt
 
+# Setup success marker (local state; run.sh gates on it)
+.setup-complete
+
 # Per-user customer list — names + org IDs are sensitive; never commit to a
 # (public) repo. Each user keeps a local copy; see customers.example.json.
 customers.json
