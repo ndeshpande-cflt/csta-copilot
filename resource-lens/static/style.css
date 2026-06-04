@@ -247,6 +247,7 @@ code { font-family: var(--font-mono); background: var(--panel-2); padding: 1px 5
 .metric-section-title {
   font-size: 1.05rem; font-weight: 600; margin: 0 0 12px;
   letter-spacing: 0.01em;
+  color: var(--accent-2);
 }
 
 /* Cluster details: key/value grid */
@@ -257,9 +258,15 @@ code { font-family: var(--font-mono); background: var(--panel-2); padding: 1px 5
 }
 .kv-grid {
   display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 8px 20px;
+  grid-template-columns: repeat(3, max-content 1fr);
+  gap: 10px 18px;
   margin: 0;
+}
+@media (max-width: 900px) {
+  .kv-grid { grid-template-columns: repeat(2, max-content 1fr); }
+}
+@media (max-width: 560px) {
+  .kv-grid { grid-template-columns: max-content 1fr; }
 }
 .kv-grid dt {
   color: var(--muted);
@@ -276,6 +283,69 @@ code { font-family: var(--font-mono); background: var(--panel-2); padding: 1px 5
 .kv-grid dd code { font-size: 0.86rem; }
 .break-anywhere { word-break: break-all; }
 .small { font-size: 0.78rem; }
+
+/* Cluster stats (cloud-obs), grouped into named sub-sections */
+.cluster-stats {
+  padding: 18px 20px; border-radius: 8px;
+  background: var(--panel); border: 1px solid var(--line);
+  margin: 0 0 24px;
+}
+.stats-subsection { margin: 0 0 18px; }
+.stats-subsection:last-child { margin-bottom: 0; }
+.stats-subtitle {
+  font-size: 0.85rem; font-weight: 700;
+  margin: 0 0 10px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  color: var(--accent);
+}
+
+/* Connector type aggregate chips */
+.type-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.type-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 20px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  font-size: 0.85rem; color: var(--muted);
+}
+.type-chip strong { color: var(--text); font-weight: 700; }
+
+/* Connector type filter control */
+.connector-filter {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 12px;
+  font-size: 0.85rem; color: var(--muted);
+}
+.connector-filter select {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 5px 8px; font-size: 0.85rem;
+}
+
+/* Collapsible connector list */
+.connectors-details > summary {
+  cursor: pointer; width: max-content;
+  color: var(--accent-2); font-size: 0.9rem;
+  padding: 4px 0; user-select: none;
+}
+.connectors-details > summary:hover { text-decoration: underline; }
+.connectors-details[open] > summary { margin-bottom: 10px; }
+
+/* Cluster Grafana metric links */
+.cluster-metrics {
+  padding: 18px 20px; border-radius: 8px;
+  background: var(--panel); border: 1px solid var(--line);
+  margin: 0 0 24px;
+}
+.metric-links { display: flex; flex-wrap: wrap; gap: 10px; }
+.metric-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  color: var(--text); text-decoration: none;
+  font-size: 0.9rem; font-weight: 500;
+  transition: border-color 120ms, background 120ms, color 120ms;
+}
+.metric-link::after { content: "↗"; color: var(--muted); font-size: 0.85em; }
+.metric-link:hover { border-color: var(--accent, var(--muted)); background: var(--panel); }
 
 /* Status pill colors for cluster status */
 .status.status-up { background: rgba(110, 224, 168, 0.12); color: var(--good); border: 1px solid rgba(110, 224, 168, 0.35); }
@@ -435,6 +505,16 @@ code { font-family: var(--font-mono); background: var(--panel-2); padding: 1px 5
   letter-spacing: -0.01em;
 }
 .customer-counts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* External link to the Confluent Cloud admin dashboard for this org. */
+.admin-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: var(--muted); text-decoration: none;
+  font-size: 0.9rem; padding: 3px 9px; border-radius: 6px;
+  border: 1px solid var(--border, var(--panel-2));
+  transition: color 120ms, background 120ms, border-color 120ms;
+}
+.admin-link:hover { color: var(--text); background: var(--panel-2); }
 
 .ticket-list {
   width: 100%; border-collapse: collapse; font-size: 0.92rem;

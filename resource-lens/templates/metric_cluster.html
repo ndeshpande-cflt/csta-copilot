@@ -8,13 +8,13 @@
 </head>
 <body>
 <header class="topbar">
-  {% if org and env_id %}
+  {% if org and org.slug and env_id %}
     <a href="{{ url_for('metric_clusters', slug=org.slug, env_id=env_id) }}" class="back">← Clusters</a>
   {% else %}
     <a href="{{ url_for('metric_lens_home') }}" class="back">← Resource Lens</a>
   {% endif %}
   <div class="topbar-right">
-    <a class="topbar-settings" href="{{ url_for('settings_page') }}" title="Manage cookies">⚙ Settings</a>
+    <a href="?refresh=1" class="refresh" title="Bypass cache and re-fetch cluster details, stats and metrics">↻ Refresh</a>
     {% if current_user and current_user.first_name %}
       <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
     {% endif %}
@@ -29,16 +29,14 @@
         {% if cluster and cluster.name and cluster.name != cluster_id %}
           <span class="muted"> · {{ cluster.name }}</span>
         {% endif %}
-        <span class="metric-lens-tag">Resource Lens</span>
+        {% if cluster and cluster.status %}
+          <span class="status status-{{ cluster.status|lower }}">{{ cluster.status }}</span>
+        {% endif %}
       </h1>
     </div>
     <div class="customer-counts">
-      <span class="count-pill"><strong>{{ cluster_id }}</strong></span>
-      {% if cluster and cluster.status %}
-        <span class="status status-{{ cluster.status|lower }}">{{ cluster.status }}</span>
-      {% endif %}
       {% if env_id %}
-        <span class="muted">Env <code>{{ env_id }}</code></span>
+        <span class="muted">Env: {{ env_name or env_id }}</span>
       {% endif %}
     </div>
   </div>
@@ -49,14 +47,30 @@
     <section class="cluster-details">
       <h2 class="metric-section-title">Cluster details</h2>
       <dl class="kv-grid">
+        <dt>Logical ID</dt><dd><code>{{ cluster_id }}</code></dd>
         {% if cluster.physical_cluster_id %}
           <dt>Physical ID</dt><dd><code>{{ cluster.physical_cluster_id }}</code></dd>
+        {% endif %}
+        {% if cluster.sku %}
+          <dt>SKU</dt><dd>{{ cluster.sku }}</dd>
+        {% endif %}
+        {% if cluster.cku is not none %}
+          <dt>CKUs</dt><dd>{{ cluster.cku }}</dd>
+        {% endif %}
+        {% if cluster.max_network_ingress is not none %}
+          <dt>Max network ingress</dt><dd>{{ cluster.max_network_ingress }} MBps</dd>
+        {% endif %}
+        {% if cluster.max_network_egress is not none %}
+          <dt>Max network egress</dt><dd>{{ cluster.max_network_egress }} MBps</dd>
+        {% endif %}
+        {% if cluster.max_partition is not none %}
+          <dt>Max partitions</dt><dd>{{ cluster.max_partition }}</dd>
         {% endif %}
         {% if cluster.cloud or cluster.region %}
           <dt>Cloud / Region</dt>
           <dd>
             {{ cluster.cloud }}{% if cluster.region %} / {{ cluster.region }}{% endif %}
-            {% if cluster.zones %} <span class="muted">({{ cluster.zones | join(', ') }})</span>{% endif %}
+            {% if cluster.zones %} <span class="muted">({{ cluster.zones | map('short_zone') | join(', ') }})</span>{% endif %}
           </dd>
         {% endif %}
         {% if cluster.network_type or cluster.network_id %}
@@ -66,31 +80,129 @@
             {% if cluster.network_id %} <code>{{ cluster.network_id }}</code>{% endif %}
           </dd>
         {% endif %}
-        {% if cluster.bootstrap_endpoint %}
-          <dt>Bootstrap</dt><dd><code class="break-anywhere">{{ cluster.bootstrap_endpoint }}</code></dd>
-        {% endif %}
-        {% if cluster.http_endpoint %}
-          <dt>HTTP endpoint</dt><dd><code class="break-anywhere">{{ cluster.http_endpoint }}</code></dd>
-        {% endif %}
         {% if cluster.k8s_cluster_id %}
           <dt>K8s cluster</dt><dd><code>{{ cluster.k8s_cluster_id }}</code></dd>
         {% endif %}
         {% if cluster.pending_cku %}
           <dt>Pending CKU</dt><dd>{{ cluster.pending_cku }} <span class="muted">(resize in progress)</span></dd>
         {% endif %}
-        {% if cluster.created %}
-          <dt>Created</dt><dd><span class="muted">{{ cluster.created }}</span></dd>
-        {% endif %}
-        {% if cluster.modified %}
-          <dt>Modified</dt><dd><span class="muted">{{ cluster.modified }}</span></dd>
-        {% endif %}
       </dl>
     </section>
+
+    {% if obs_groups %}
+      <section class="cluster-stats">
+        <h2 class="metric-section-title">
+          Cluster stats <span class="muted small">· via cloud-obs</span>
+        </h2>
+        {% for grp in obs_groups %}
+          <div class="stats-subsection">
+            <h3 class="stats-subtitle">{{ grp.title }}</h3>
+            <dl class="kv-grid">
+              {% for label, value in grp.rows %}
+                <dt>{{ label }}</dt><dd>{% if '(MB)' in label %}{{ value | mb }}{% else %}{{ value | num }}{% endif %}</dd>
+              {% endfor %}
+            </dl>
+          </div>
+        {% endfor %}
+
+        {% if connectors %}
+          <div class="stats-subsection">
+            <h3 class="stats-subtitle">Connectors <span class="muted small">({{ connectors|length }} total)</span></h3>
+            <div class="type-chips">
+              {% for type, count in connector_types %}
+                <span class="type-chip">{{ type }} <strong>{{ count }}</strong></span>
+              {% endfor %}
+            </div>
+            <details class="connectors-details">
+              <summary>Show connector list ({{ connectors|length }})</summary>
+              <div class="connector-filter">
+                <label for="connector-type-filter">Filter by type</label>
+                <select id="connector-type-filter">
+                  <option value="">All types ({{ connectors|length }})</option>
+                  {% for type, count in connector_types %}
+                    <option value="{{ type }}">{{ type }} ({{ count }})</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <table class="ticket-list" id="connectors-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Type</th>
+                    <th>Throughput (MBps)</th>
+                    <th>Created</th>
+                    <th>Tasks</th>
+                    <th>Task hours</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for c in connectors %}
+                    <tr class="connector-row" data-type="{{ c.connector_type or 'Unknown' }}">
+                      <td>
+                        {% if c.lc_id %}
+                          <a href="https://admin.confluent.cloud/explorer/environments/search/{{ c.lc_id }}"
+                             target="_blank" rel="noopener" class="ticket-id-link"><code>{{ c.lc_id }}</code></a>
+                        {% else %}—{% endif %}
+                      </td>
+                      <td>{{ c.connector_type or '—' }}</td>
+                      <td>{{ c.connect_throughput | num }}</td>
+                      <td class="muted">{{ c.created_at | short_date or '—' }}</td>
+                      <td>{{ c.connect_num_task | num }}</td>
+                      <td>{{ c.connect_task_hours | num }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </details>
+          </div>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    {% if metric_links.metrics %}
+      <section class="cluster-metrics">
+        <h2 class="metric-section-title">
+          Grafana metrics <span class="muted small">· last 7 days · opens in Grafana ↗</span>
+        </h2>
+        <div class="metric-links">
+          {% for m in metric_links.metrics %}
+            <a class="metric-link" href="{{ m.url }}" target="_blank" rel="noopener">{{ m.name }}</a>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    {% if metric_links.dashboards %}
+      <section class="cluster-metrics">
+        <h2 class="metric-section-title">
+          Dashboards <span class="muted small">· opens in a new tab ↗</span>
+        </h2>
+        <div class="metric-links">
+          {% for m in metric_links.dashboards %}
+            <a class="metric-link" href="{{ m.url }}" target="_blank" rel="noopener">{{ m.name }}</a>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
   {% else %}
     <p class="muted empty-state">
       No cluster details available. Enter via a customer's environment list to see full details.
     </p>
   {% endif %}
 </div>
+
+<script>
+(function () {
+  // Client-side filter of the connectors table by type.
+  var sel = document.getElementById('connector-type-filter');
+  if (!sel) return;
+  sel.addEventListener('change', function () {
+    var want = sel.value;
+    document.querySelectorAll('#connectors-table tr.connector-row').forEach(function (row) {
+      row.style.display = (!want || row.dataset.type === want) ? '' : 'none';
+    });
+  });
+})();
+</script>
 </body>
 </html>

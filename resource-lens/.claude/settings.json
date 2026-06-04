@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s https://cloud-obs.aws.cse.confluent.io/api/kafka/7786/lkc-5970dz -H 'Referer: https://cloud-obs.aws.cse.confluent.io/resources/7786' -H 'User-Agent: Mozilla/5.0 \\(Macintosh; Intel Mac OS X 10_15_7\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/148.0.0.0 Safari/537.36' -o /tmp/obs.json -w 'HTTP %{http_code}  bytes=%{size_download}\\\\n')",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\('/tmp/obs.json'\\)\\); print\\(list\\(d.keys\\(\\)\\) if isinstance\\(d,dict\\) else type\\(d\\)\\)\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s https://cloud-obs.aws.cse.confluent.io/api/kafka/7786/__TRACKED_VAR__ -H 'Referer: https://cloud-obs.aws.cse.confluent.io/resources/7786' -H 'User-Agent: Mozilla/5.0' -o /tmp/obs.json -w '__TRACKED_VAR__ HTTP %{http_code}\\\\n')"
+    ]
+  }
+}

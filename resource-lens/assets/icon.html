@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  .tile {
+    width: 1024px; height: 1024px;
+    box-sizing: border-box;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    background: linear-gradient(160deg, #10b981 0%, #059669 55%, #047857 100%);
+    border-radius: 200px;
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: #ffffff;
+  }
+  .csta {
+    font-size: 150px;
+    font-weight: 700;
+    letter-spacing: 26px;
+    margin-left: 26px;           /* compensate trailing letter-spacing for centering */
+    line-height: 1;
+    margin-bottom: 40px;
+    opacity: 0.96;
+    text-shadow: 0 6px 18px rgba(0,0,0,0.18);
+  }
+  .word {
+    font-size: 230px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    line-height: 0.94;
+    text-shadow: 0 10px 28px rgba(0,0,0,0.22);
+  }
+</style>
+</head>
+<body>
+  <div class="tile">
+    <div class="csta">CSTA</div>
+    <div class="word">Resource</div>
+    <div class="word">Lens</div>
+  </div>
+</body>
+</html>

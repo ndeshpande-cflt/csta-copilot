@@ -1,0 +1,54 @@
+{
+  "metrics": [
+    {
+      "metric": "Ingress",
+      "url": "https://grafana.monitoring.confluent.cloud/d/eej5s6zeqmdj4e/kafka-dashboard?var-k8s_namespace_name=#PKCID#&orgId=1&from=now-7d&to=now&timezone=Asia%2FKolkata&var-AMP=heracles_amp&var-cloud_region=$__all&var-k8s_cluster_name=$__all&var-k8s_pod_name=$__all&var-pvc_name=$__all&viewPanel=panel-83"
+    },
+    {
+      "metric": "Egress",
+      "url": "https://grafana.monitoring.confluent.cloud/d/eej5s6zeqmdj4e/kafka-dashboard?var-k8s_namespace_name=#PKCID#&orgId=1&from=now-7d&to=now&timezone=Asia%2FKolkata&var-AMP=heracles_amp&var-cloud_region=$__all&var-k8s_cluster_name=$__all&var-k8s_pod_name=$__all&var-pvc_name=$__all&viewPanel=panel-92"
+    },
+    {
+      "metric": "Requests per second",
+      "url": "https://grafana.monitoring.confluent.cloud/explore?schemaVersion=1&panes=%7B%22xww%22:%7B%22datasource%22:%22heracles_amp%22,%22queries%22:%5B%7B%22refId%22:%22kafka_server_request_requests_delta_total-sum%28rate%29%22,%22expr%22:%22sum%28rate%28kafka_server_request_requests_delta_total%7B%20cloud_region%3D~%5C%22.%2B%5C%22,k8s_cluster_name%3D~%5C%22.%2B%5C%22,k8s_namespace_name%3D~%5C%22#PKCID#%5C%22,k8s_pod_name%3D~%5C%22.%2B%5C%22%7D%5B$__rate_interval%5D%29%29%22,%22legendFormat%22:%22sum%28rate%29%22,%22fromExploreMetrics%22:true,%22datasource%22:%7B%22type%22:%22prometheus%22,%22uid%22:%22heracles_amp%22%7D,%22adhocFilters%22:%5B%5D,%22interval%22:%22%22,%22editorMode%22:%22code%22,%22range%22:true,%22instant%22:true%7D%5D,%22range%22:%7B%22from%22%3A%22now-7d%22%2C%22to%22%3A%22now%22%7D%2C%22compact%22:false%7D%7D&orgId=1"
+    },
+    {
+      "metric": "Connection count",
+      "url": "https://grafana.monitoring.confluent.cloud/d/ben17h1c90ni8c/gts-kafka-dashboard?orgId=1&from=now-7d&to=now&timezone=Asia%2FKolkata&var-cloud_region=$__all&var-k8s_cluster_name=$__all&var-k8s_pod_name=$__all&var-pvc_name=$__all&var-AMP=heracles_amp&var-k8s_namespace_name=#PKCID#&editPanel=106"
+    },
+    {
+      "metric": "Cluster load",
+      "url": "https://grafana.monitoring.confluent.cloud/explore?schemaVersion=1&panes=%7B%22qjt%22%3A%7B%22datasource%22%3A%22heracles_amp%22%2C%22queries%22%3A%5B%7B%22datasource%22%3A%7B%22type%22%3A%22prometheus%22%2C%22uid%22%3A%22heracles_amp%22%7D%2C%22ddRequestIndex%22%3A0%2C%22expr%22%3A%22max+by+%28k8s_cluster_name%2C+k8s_namespace_name%2C+physical_cluster_id%2C+k8s_cluster_name%29+%28max_over_time%28kafka_server_broker_load_broker_load_percent%7Bcloud_region%3D%7E%5C%22.%2B%5C%22%2Ck8s_cluster_name%3D%7E%5C%22.%2B%5C%22%2Ck8s_namespace_name%3D%7E%5C%22#PKCID#%5C%22%2Ck8s_namespace_name%3D%7E%5C%22#PKCID#%5C%22%7D%5B20m%5D%29%29%22%2C%22interval%22%3A%22120s%22%2C%22type%22%3A%22timeseries%22%2C%22refId%22%3A%22A%22%7D%2C%7B%22datasource%22%3A%7B%22type%22%3A%22prometheus%22%2C%22uid%22%3A%22heracles_amp%22%7D%2C%22ddRequestIndex%22%3A1%2C%22expr%22%3A%22avg+by+%28k8s_cluster_name%2C+k8s_namespace_name%2C+physical_cluster_id%2C+k8s_cluster_name%29+%28max_over_time%28kafka_server_broker_load_broker_load_percent%7Bcloud_region%3D%7E%5C%22.%2B%5C%22%2Ck8s_cluster_name%3D%7E%5C%22.%2B%5C%22%2Ck8s_namespace_name%3D%7E%5C%22#PKCID#%5C%22%2Ck8s_namespace_name%3D%7E%5C%22#PKCID#%5C%22%7D%5B20m%5D%29%29%22%2C%22interval%22%3A%22120s%22%2C%22type%22%3A%22timeseries%22%2C%22refId%22%3A%22B%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22now-7d%22%2C%22to%22%3A%22now%22%7D%2C%22compact%22%3Afalse%7D%7D&orgId=1"
+    },
+    {
+      "metric": "Hot Partition Ingress",
+      "url": "https://grafana.telemetry.aws.confluent.cloud/d/45ee9755-42d5-413f-96b9-39d959f86ff2/ccloud-metrics3a-kafka?orgId=1&from=now-7d&to=now&timezone=browser&var-resourceKafkaId=#LKCID#&var-physicalClusterId=#PKCID#&var-resourceKafkaIdNumber=#LKCNUM#&viewPanel=panel-68"
+    },
+    {
+      "metric": "Hot Partition Egress",
+      "url": "https://grafana.telemetry.aws.confluent.cloud/d/45ee9755-42d5-413f-96b9-39d959f86ff2/ccloud-metrics3a-kafka?orgId=1&from=now-7d&to=now&timezone=browser&var-resourceKafkaId=#LKCID#&var-physicalClusterId=#PKCID#&var-resourceKafkaIdNumber=#LKCNUM#&viewPanel=panel-67"
+    }
+  ],
+  "dashboards": [
+    {
+      "dashboard": "Kafka Dashboard",
+      "url": "https://grafana.monitoring.confluent.cloud/d/eej5s6zeqmdj4e/kafka-dashboard?var-k8s_namespace_name=#PKCID#&orgId=1&from=now-7d&to=now&timezone=Asia%2FKolkata&var-AMP=heracles_amp&var-cloud_region=$__all&var-k8s_cluster_name=$__all&var-k8s_pod_name=$__all&var-pvc_name=$__all&var-hc_type=$__all"
+    },
+    {
+      "dashboard": "GTS Dashboard (Metrics API)",
+      "url": "https://grafana.telemetry.aws.confluent.cloud/d/45ee9755-42d5-413f-96b9-39d959f86ff2/ccloud-metrics3a-kafka?orgId=1&from=now-24h&to=now-1h&timezone=browser&var-resourceKafkaId=#LKCID#&var-physicalClusterId=#PKCID#&var-resourceKafkaIdNumber=#LKCNUM#"
+    },
+    {
+      "dashboard": "K2 Freight Overview",
+      "url": "https://grafana.monitoring.confluent.cloud/d/ee77rdcgsj2m8e/freight-overview?orgId=1&from=now-7d&to=now&timezone=utc&var-region=$__all&var-physical_cluster_id=$__all&var-tenant=#LKCID#&var-DRUID=druid_prod"
+    },
+    {
+      "dashboard": "Cloud Obs",
+      "url": "https://cloud-obs.aws.cse.confluent.io/cluster/#ORGID#/#LKCID#"
+    },
+    {
+      "dashboard": "Cloud Admin",
+      "url": "https://admin.confluent.cloud/explorer/environments/search/#LKCID#"
+    }
+  ]
+}

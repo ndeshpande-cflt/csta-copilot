@@ -25,6 +25,10 @@
     <div class="customer-counts">
       <span class="count-pill"><strong>{{ envs|length }}</strong> environments</span>
       <span class="muted">Confluent org id: {{ org.confluent_org_id }}</span>
+      <a class="admin-link"
+         href="https://admin.confluent.cloud/explorer/{{ org.confluent_org_id }}"
+         target="_blank" rel="noopener"
+         title="Open this org in the Confluent Cloud admin dashboard">Admin dashboard ↗</a>
     </div>
   </div>
 </section>
@@ -37,6 +41,7 @@
           <th class="col-id">ID</th>
           <th class="col-subject">Name</th>
           <th class="col-status">Status</th>
+          <th>Created</th>
         </tr>
       </thead>
       <tbody>
@@ -51,6 +56,7 @@
                 <span class="status status-open">active</span>
               {% endif %}
             </td>
+            <td class="muted">{{ e.created | short_date or "—" }}</td>
           </tr>
         {% endfor %}
       </tbody>

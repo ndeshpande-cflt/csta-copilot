@@ -36,10 +36,12 @@
         <tr>
           <th class="col-id">Logical ID</th>
           <th class="col-subject">Name</th>
-          <th>Status</th>
+          <th>SKU</th>
+          <th>CKU</th>
           <th>Cloud / Region</th>
           <th>Physical ID</th>
           <th>Network</th>
+          <th>Created</th>
         </tr>
       </thead>
       <tbody>
@@ -52,15 +54,12 @@
                 <span class="count-pill count-pending" title="Resize in progress"><strong>{{ c.pending_cku }}</strong> pending CKU</span>
               {% endif %}
             </td>
-            <td>
-              {% if c.status %}
-                <span class="status status-{{ c.status|lower }}">{{ c.status }}</span>
-              {% else %}—{% endif %}
-            </td>
+            <td>{% if c.sku %}{{ c.sku }}{% else %}—{% endif %}</td>
+            <td>{% if c.cku is not none %}{{ c.cku }}{% else %}—{% endif %}</td>
             <td>
               {% if c.cloud or c.region %}
                 {{ c.cloud }}{% if c.region %} / {{ c.region }}{% endif %}
-                {% if c.zones %}<div class="muted small">{{ c.zones | join(', ') }}</div>{% endif %}
+                {% if c.zones %}<div class="muted small">{{ c.zones | map('short_zone') | join(', ') }}</div>{% endif %}
               {% else %}—{% endif %}
             </td>
             <td>{% if c.physical_cluster_id %}<code>{{ c.physical_cluster_id }}</code>{% else %}—{% endif %}</td>
@@ -69,6 +68,7 @@
               {% if c.network_id %}<div class="muted small"><code>{{ c.network_id }}</code></div>{% endif %}
               {% if not c.network_type and not c.network_id %}—{% endif %}
             </td>
+            <td class="muted">{{ c.created | short_date or "—" }}</td>
           </tr>
         {% endfor %}
       </tbody>

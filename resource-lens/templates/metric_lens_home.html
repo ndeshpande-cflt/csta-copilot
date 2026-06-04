@@ -8,9 +8,7 @@
 </head>
 <body>
 <header class="topbar">
-  <a href="{{ url_for('index') }}" class="back">← CSTA Copilot</a>
   <div class="topbar-right">
-    <a class="topbar-settings" href="{{ url_for('settings_page') }}" title="Manage cookies">⚙ Settings</a>
     {% if current_user and current_user.first_name %}
       <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
     {% endif %}
@@ -36,7 +34,7 @@
         type="text"
         name="cluster"
         id="cluster-search-input"
-        placeholder="Jump to a cluster by ID (e.g. lkc-22xqy)"
+        placeholder="Jump to a cluster by ID (e.g. lkc-22xqy or pkc-2or7m)"
         required
       >
       <button type="submit">Search</button>
@@ -126,10 +124,10 @@
   const input = document.getElementById('cluster-search-input');
   if (form && input) {
     form.addEventListener('submit', e => {
-      if (!/lkc-[a-z0-9]+/i.test(input.value)) {
+      if (!/(?:lkc|pkc)-[a-z0-9]+/i.test(input.value)) {
         e.preventDefault();
         input.focus();
-        input.setCustomValidity('Please enter a logical Kafka cluster ID like lkc-22xqy.');
+        input.setCustomValidity('Please enter a cluster ID like lkc-22xqy or pkc-2or7m.');
         input.reportValidity();
         return;
       }
