@@ -8,12 +8,13 @@
 </head>
 <body>
 <header class="topbar">
-  <a href="{{ url_for('index') }}" class="back">← CSTA Copilot</a>
-  {% if current_user and current_user.first_name %}
-    <div class="topbar-right">
+  <span></span>
+  <span class="topbar-title">Ticket Lens</span>
+  <div class="topbar-right">
+    {% if current_user and current_user.first_name %}
       <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
-    </div>
-  {% endif %}
+    {% endif %}
+  </div>
 </header>
 
 <main class="home">

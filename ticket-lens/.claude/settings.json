@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app.py'\\).read\\(\\)\\); print\\('app.py OK'\\)\")",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(sed -n '468,620p' resource-lens/app.py)",
+      "Bash(grep -oE \"^[A-Z_]+=\" ticket-lens/.env)",
+      "Bash(grep -oE \"^[A-Z_]+=\" resource-lens/.env)",
+      "Bash(sed -n '/def _org_screen_response/,/return _org_screen_response\\(org\\)/p' app.py)",
+      "Bash(sed -n '35,84p' templates/customer.html)"
+    ]
+  }
+}

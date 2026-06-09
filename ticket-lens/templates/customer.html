@@ -9,8 +9,9 @@
 <body>
 <header class="topbar">
   <a href="{{ url_for('ticket_lens_home') }}" class="back">← Ticket Lens</a>
+  <span class="topbar-title">Ticket Lens</span>
   <div class="topbar-right">
-    <a href="?refresh=1" class="refresh" id="customer-refresh" title="Bypass cache and fetch the latest tickets">↻ Refresh</a>
+    <a href="{{ request.path }}?refresh=1&status={{ 'all' if show_all else 'active' }}" class="refresh" id="customer-refresh" title="Bypass cache and fetch the latest tickets">↻ Refresh</a>
     {% if current_user and current_user.first_name %}
       <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
     {% endif %}
@@ -21,6 +22,13 @@
   <div class="customer-header-top">
     <div class="customer-name-row">
       <h1 class="customer-name">{{ org.name }}</h1>
+      {% if org.slug %}
+        <a href="{{ url_for('customer_analytics', slug=org.slug) }}" class="analytics-link"
+           title="View {{ org.name }}'s 60-day support analytics">📊 Analytics</a>
+      {% else %}
+        <a href="{{ url_for('org_analytics', org_id=org.id) }}" class="analytics-link"
+           title="View {{ org.name }}'s 60-day support analytics">📊 Analytics</a>
+      {% endif %}
       {% if subdomain %}
         <a href="https://{{ subdomain }}.zendesk.com/agent/organizations/{{ org.id }}/tickets"
            class="org-tickets-link" target="_blank" rel="noopener"
@@ -33,17 +41,13 @@
       <span class="count-pill count-new"><strong>{{ new_count }}</strong> new</span>
       <span class="count-pill count-open"><strong>{{ open_count }}</strong> open</span>
       <span class="count-pill count-pending"><strong>{{ pending_count }}</strong> pending</span>
+      <span class="status-toggle" role="group" aria-label="Status filter">
+        <a class="status-toggle-opt {{ 'on' if not show_all }}" href="{{ request.path }}?status=active">Active</a>
+        <a class="status-toggle-opt {{ 'on' if show_all }}" href="{{ request.path }}?status=all">All · {{ window_days }}d{% if show_all %} ({{ total_count }}){% endif %}</a>
+      </span>
       {% if truncated %}<span class="muted">(showing latest {{ total_count }}; more exist)</span>{% endif %}
     </div>
   </div>
-  {% if priority_counts %}
-    <div class="priority-breakdown">
-      <span class="priority-breakdown-label">By priority:</span>
-      {% for pc in priority_counts %}
-        <span class="count-pill count-prio-{{ pc.name }}"><strong>{{ pc.count }}</strong> {{ pc.name | prio_label }}</span>
-      {% endfor %}
-    </div>
-  {% endif %}
 </section>
 
 <div class="main">
@@ -73,7 +77,9 @@
       </tbody>
     </table>
   {% else %}
-    <p class="muted empty-state">No open or pending tickets for {{ org.name }}.</p>
+    <p class="muted empty-state">
+      {% if show_all %}No tickets in the last {{ window_days }} days for {{ org.name }}.{% else %}No open or pending tickets for {{ org.name }}.{% endif %}
+    </p>
   {% endif %}
 
   <p class="muted listing-hint">
@@ -137,6 +143,13 @@
       showLoading('Refreshing tickets');
     });
   }
+
+  document.querySelectorAll('.status-toggle-opt').forEach(opt => {
+    opt.addEventListener('click', e => {
+      if (isModifiedClick(e) || opt.classList.contains('on')) return;
+      showLoading('Loading tickets');
+    });
+  });
 
   document.querySelectorAll('.ticket-row').forEach(row => {
     row.addEventListener('click', e => {

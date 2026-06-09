@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ org.name }} — Analytics</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a href="{{ back_url }}" class="back">← {{ org.name }} tickets</a>
+  <span class="topbar-title">Ticket Lens</span>
+  <div class="topbar-right">
+    {% if current_user and current_user.first_name %}
+      <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
+    {% endif %}
+  </div>
+</header>
+
+{# ---- reusable horizontal bar chart ----------------------------------
+   prefix    : base CSS class for the fill (e.g. 'bar-issue')
+   per_row   : when true, append '-<slugified name>' so each bar can be
+               colored individually (priority/status/sentiment). #}
+{% macro barchart(rows, max_count, prefix='', per_row=False) %}
+  <div class="bars">
+    {% for r in rows %}
+      {% set cls = (prefix ~ '-' ~ (r.name | lower | replace(' ', '-') | replace('/', ''))) if (per_row and prefix) else prefix %}
+      <div class="bar-row">
+        <div class="bar-label" title="{{ r.label if r.label else r.name }}">{{ r.label if r.label else r.name }}</div>
+        <div class="bar-track">
+          <div class="bar-fill {{ cls }}"
+               style="width: {{ (100 * r.count / max_count) if max_count else 0 }}%;"></div>
+        </div>
+        <div class="bar-count">{{ r.count }}</div>
+      </div>
+    {% endfor %}
+  </div>
+{% endmacro %}
+
+<section class="analytics-header">
+  <div class="analytics-title-row">
+    <div>
+      <h1 class="customer-name">{{ org.name }}</h1>
+      <div class="analytics-subtitle">
+        Support analytics · last {{ data.window_days if data else 60 }} days
+        {% if data %}<span class="muted">(since {{ data.since }})</span>{% endif %}
+      </div>
+    </div>
+    <form method="post" action="{{ refresh_url }}"
+          data-stream-url="{{ stream_url }}"
+          id="analytics-refresh-form">
+      <button type="submit" class="analytics-refresh-btn">
+        ↻ {{ 'Regenerate' if data else 'Generate analytics' }}
+      </button>
+    </form>
+  </div>
+  <div class="analytics-meta">
+    {% if generated_at %}
+      <span class="muted">Last refreshed {{ generated_at }}</span>
+    {% else %}
+      <span class="muted">Not generated yet</span>
+    {% endif %}
+    {% if data and data.truncated %}
+      <span class="analytics-warn-pill">Hit the page cap — counts may undercount a very busy window</span>
+    {% endif %}
+  </div>
+</section>
+
+<div class="main analytics-main">
+  {% if not data %}
+    <div class="analytics-empty">
+      <div class="analytics-empty-icon">📊</div>
+      <h2>No analytics yet</h2>
+      <p class="muted">
+        Generate a snapshot of {{ org.name }}'s last 60 days — ticket volume, priority mix,
+        AI-classified sentiment, themes, and issue types. This makes a few Zendesk calls and
+        one or more Claude passes, so it can take up to a minute.
+      </p>
+    </div>
+  {% elif data.total == 0 %}
+    <div class="analytics-empty">
+      <div class="analytics-empty-icon">🗂️</div>
+      <h2>No tickets in the last {{ data.window_days }} days</h2>
+      <p class="muted">{{ org.name }} has no tickets created in this window.</p>
+    </div>
+  {% else %}
+    {% if data.ai_error %}
+      <div class="analytics-ai-note">⚠️ {{ data.ai_error }}</div>
+    {% endif %}
+
+    {# ---- top-line numbers ---- #}
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-value">{{ data.total }}</div>
+        <div class="kpi-label">Tickets (last {{ data.window_days }}d)</div>
+      </div>
+      <div class="kpi-card kpi-accent">
+        <div class="kpi-value">{{ data.open_pending_total }}</div>
+        <div class="kpi-label">Currently open / pending</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-value">{{ data.classified }}</div>
+        <div class="kpi-label">AI-classified</div>
+      </div>
+    </div>
+
+    {# ---- weekly created trend (stacked by priority) ---- #}
+    {% if data.weekly %}
+      <section class="metric-card metric-card-wide weekly-card">
+        <div class="weekly-head">
+          <h3>Tickets created per week</h3>
+          <div class="weekly-legend">
+            {% for L in data.weekly_legend %}
+              <span class="wk-legend-item"><span class="wk-swatch bar-prio-{{ L.name }}"></span>{{ L.label }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        {% set wkmax = data.weekly | map(attribute='total') | max %}
+        <div class="weekly-chart">
+          {% for w in data.weekly %}
+            <div class="week-col" title="Week of {{ w.label }}: {{ w.total }} ticket{{ '' if w.total == 1 else 's' }}">
+              <div class="week-total">{{ w.total or '' }}</div>
+              <div class="week-track">
+                <div class="week-stack" style="height: {{ (100 * w.total / wkmax) if wkmax else 0 }}%;">
+                  {% for s in w.segments %}
+                    <div class="week-seg bar-prio-{{ s.name }}"
+                         style="height: {{ 100 * s.count / w.total }}%;"
+                         title="{{ s.label }}: {{ s.count }}"></div>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="week-label">{{ w.label }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    {# ---- chart grid ---- #}
+    <div class="analytics-grid">
+      <section class="metric-card">
+        <h3>By priority</h3>
+        {% set pmax = data.priority | map(attribute='count') | max if data.priority else 0 %}
+        {{ barchart(data.priority, pmax, prefix='bar-prio', per_row=True) }}
+      </section>
+
+      <section class="metric-card">
+        <h3>By status</h3>
+        {% set smax = data.status_breakdown | map(attribute='count') | max if data.status_breakdown else 0 %}
+        {{ barchart(data.status_breakdown, smax, prefix='bar-status', per_row=True) }}
+      </section>
+
+      <section class="metric-card">
+        <h3>By sentiment <span class="ai-tag">AI</span></h3>
+        {% if data.sentiment %}
+          {% set sentmax = data.sentiment | map(attribute='count') | max %}
+          {{ barchart(data.sentiment, sentmax, prefix='bar-sentiment', per_row=True) }}
+        {% else %}
+          <p class="muted">No sentiment data.</p>
+        {% endif %}
+      </section>
+
+      <section class="metric-card">
+        <h3>By issue type <span class="ai-tag">AI</span></h3>
+        {% if data.issue_types %}
+          {% set imax = data.issue_types | map(attribute='count') | max %}
+          {{ barchart(data.issue_types, imax, prefix='bar-issue') }}
+        {% else %}
+          <p class="muted">No issue-type data.</p>
+        {% endif %}
+      </section>
+
+      <section class="metric-card metric-card-wide">
+        <h3>Top themes <span class="ai-tag">AI</span></h3>
+        {% if data.themes %}
+          {% set tmax = data.themes | map(attribute='count') | max %}
+          {{ barchart(data.themes, tmax, prefix='bar-theme') }}
+        {% else %}
+          <p class="muted">No theme data.</p>
+        {% endif %}
+      </section>
+
+      <section class="metric-card metric-card-wide">
+        <h3>Issues by category &rarr; cluster <span class="ai-tag">AI</span></h3>
+        {% if data.issues_by_cluster %}
+          <p class="cat-cluster-note muted">
+            {{ data.cluster_coverage }} of {{ data.classified }} classified tickets referenced an
+            <code>lkc-</code> cluster (from subject &amp; description).
+          </p>
+          <div class="cat-cluster">
+            {% for c in data.issues_by_cluster %}
+              <div class="cat-group">
+                <div class="cat-group-head">
+                  <span class="cat-name">{{ c.category }}</span>
+                  <span class="cat-total">{{ c.total }}</span>
+                </div>
+                {% set cmax = c.clusters | map(attribute='count') | max %}
+                <div class="bars">
+                  {% for cl in c.clusters %}
+                    <div class="bar-row">
+                      <div class="bar-label cluster-id" title="{{ cl.id }}">{{ cl.id }}</div>
+                      <div class="bar-track">
+                        <div class="bar-fill bar-cluster" style="width: {{ (100 * cl.count / cmax) if cmax else 0 }}%;"></div>
+                      </div>
+                      <div class="bar-count">{{ cl.count }}</div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <p class="muted">No <code>lkc-</code> cluster references found in ticket subjects or descriptions over this window.</p>
+        {% endif %}
+      </section>
+    </div>
+  {% endif %}
+</div>
+
+<div id="loading-overlay" class="loading-overlay" hidden aria-live="polite">
+  <div class="loading-card progress-card">
+    <div class="loading-title">Crunching the last 60 days</div>
+    <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="progress-fill" id="progress-fill" style="width: 0%;"></div>
+    </div>
+    <div class="progress-meta">
+      <span class="progress-stage" id="progress-stage">Starting…</span>
+      <span class="progress-pct" id="progress-pct">0%</span>
+    </div>
+    <div class="progress-error" id="progress-error" hidden></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const form = document.getElementById('analytics-refresh-form');
+  const overlay = document.getElementById('loading-overlay');
+  const fillEl = document.getElementById('progress-fill');
+  const stageEl = document.getElementById('progress-stage');
+  const pctEl = document.getElementById('progress-pct');
+  const errEl = document.getElementById('progress-error');
+  const barEl = overlay ? overlay.querySelector('.progress-bar') : null;
+  if (!form || !overlay) return;
+
+  function setProgress(pct, stage) {
+    pct = Math.max(0, Math.min(100, Math.round(pct)));
+    fillEl.style.width = pct + '%';
+    pctEl.textContent = pct + '%';
+    if (barEl) barEl.setAttribute('aria-valuenow', pct);
+    if (stage) stageEl.textContent = stage;
+  }
+
+  function showError(msg) {
+    errEl.hidden = false;
+    errEl.textContent = msg;
+    stageEl.textContent = 'Generation failed';
+    fillEl.classList.add('progress-fill-error');
+  }
+
+  async function run(streamUrl) {
+    overlay.hidden = false;
+    errEl.hidden = true;
+    fillEl.classList.remove('progress-fill-error');
+    setProgress(2, 'Starting…');
+    try {
+      const r = await fetch(streamUrl, { method: 'POST' });
+      if (!r.ok || !r.body) {
+        const data = await r.json().catch(() => ({}));
+        showError(data.error || r.statusText || 'Request failed');
+        return;
+      }
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          let evt;
+          try { evt = JSON.parse(line); } catch { continue; }
+          if (evt.type === 'progress') {
+            setProgress(evt.pct, evt.stage);
+          } else if (evt.type === 'done') {
+            setProgress(100, 'Done — loading dashboard…');
+            window.location.href = evt.redirect;
+            return;
+          } else if (evt.type === 'error') {
+            showError(evt.error || 'Unknown error');
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      showError(e.message);
+    }
+  }
+
+  form.addEventListener('submit', e => {
+    // Progressive enhancement: stream with a live bar when JS + fetch streaming
+    // are available; otherwise let the plain POST fallback run.
+    const streamUrl = form.dataset.streamUrl;
+    if (!streamUrl || !window.fetch || !window.ReadableStream) return;
+    e.preventDefault();
+    run(streamUrl);
+  });
+
+  window.addEventListener('pageshow', e => {
+    if (e.persisted) overlay.hidden = true;
+  });
+})();
+</script>
+</body>
+</html>

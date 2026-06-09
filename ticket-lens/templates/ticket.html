@@ -17,6 +17,7 @@
     <span class="bc-sep">/</span>
     <span class="bc-current">#{{ meta.ticket_id }}</span>
   </nav>
+  <span class="topbar-title">Ticket Lens</span>
   <div class="topbar-right">
     {% if current_user and current_user.first_name %}
       <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
@@ -70,6 +71,14 @@
         <dt>Cluster name</dt>
         <dd class="cluster-values">
           {% for cn in meta.cluster_names %}<span class="cluster-pill">{{ cn }}</span>{% endfor %}
+        </dd>
+      </div>
+    {% endif %}
+    {% if meta.slack_links %}
+      <div>
+        <dt>Slack discussions</dt>
+        <dd class="slack-links">
+          {% for s in meta.slack_links %}<a class="slack-pill" href="{{ s.url }}" target="_blank" rel="noopener" title="{{ s.url }}">{{ s.channel_id }}</a>{% endfor %}
         </dd>
       </div>
     {% endif %}

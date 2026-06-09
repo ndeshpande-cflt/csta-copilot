@@ -7,13 +7,15 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-{% if current_user and current_user.first_name %}
-  <header class="topbar">
-    <div class="topbar-right">
+<header class="topbar">
+  <span></span>
+  <span class="topbar-title">Ticket Lens</span>
+  <div class="topbar-right">
+    {% if current_user and current_user.first_name %}
       <span class="welcome">Welcome, <strong>{{ current_user.first_name }}</strong></span>
-    </div>
-  </header>
-{% endif %}
+    {% endif %}
+  </div>
+</header>
 <main class="home error-page">
   <h1 class="error-title">Something's off</h1>
   <div class="warn">{{ message }}</div>

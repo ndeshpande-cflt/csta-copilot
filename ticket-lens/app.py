@@ -18,7 +18,8 @@ import re
 import json
 import sqlite3
 import time
-from datetime import datetime, timezone
+from collections import Counter
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -176,6 +177,16 @@ def init_db():
             updated_at INTEGER NOT NULL
           )
         """)
+        # Per-customer analytics dashboards. Unlike `cache`, this never auto-
+        # expires — it's recomputed only on explicit refresh, and we surface the
+        # generated_at timestamp in the UI.
+        c.execute("""
+          CREATE TABLE IF NOT EXISTS analytics (
+            slug TEXT PRIMARY KEY,
+            payload TEXT NOT NULL,
+            generated_at INTEGER NOT NULL
+          )
+        """)
 
 def cache_get(key, ttl=CACHE_TTL_SECONDS):
     with db() as c:
@@ -193,6 +204,33 @@ def cache_set(key, value):
         c.execute(
             "INSERT OR REPLACE INTO cache (key, value, fetched_at) VALUES (?, ?, ?)",
             (key, json.dumps(value), int(time.time())),
+        )
+
+
+def analytics_get(slug):
+    """Return (payload_dict, generated_at_epoch) for a customer's cached
+    analytics, or (None, None) if never generated."""
+    try:
+        with db() as c:
+            row = c.execute(
+                "SELECT payload, generated_at FROM analytics WHERE slug = ?", (slug,)
+            ).fetchone()
+    except sqlite3.DatabaseError:
+        return None, None
+    if not row:
+        return None, None
+    try:
+        return json.loads(row["payload"]), row["generated_at"]
+    except (TypeError, json.JSONDecodeError):
+        return None, None
+
+
+def analytics_set(slug, payload):
+    with db() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO analytics (slug, payload, generated_at) "
+            "VALUES (?, ?, ?)",
+            (slug, json.dumps(payload), int(time.time())),
         )
 
 
@@ -477,6 +515,48 @@ def fetch_org_active_tickets(org_id, max_pages=10):
         "truncated": truncated,
     }
 
+
+def fetch_org_tickets_since(org_id, since_dt, max_pages=20):
+    """Return all of an org's tickets created on/after `since_dt`.
+
+    Sorts by created_at desc and stops paginating as soon as it crosses the
+    cutoff (every later ticket is older), so a customer with years of history
+    only costs a couple of pages for a 60-day window. Caps at `max_pages * 100`
+    as a safety net for very busy orgs.
+    """
+    out = []
+    truncated = False
+    path = (
+        f"/api/v2/organizations/{org_id}/tickets.json"
+        f"?sort_by=created_at&sort_order=desc&per_page=100"
+    )
+    pages_fetched = 0
+    while path and pages_fetched < max_pages:
+        data = zd_get(path)
+        page = data.get("tickets", []) or []
+        pages_fetched += 1
+        crossed_cutoff = False
+        for t in page:
+            created = _parse_iso(t.get("created_at"))
+            if created and created < since_dt:
+                crossed_cutoff = True
+                continue
+            out.append(t)
+        if crossed_cutoff:
+            # We've reached tickets older than the window; nothing newer remains.
+            path = None
+            break
+        next_page = data.get("next_page")
+        if not next_page:
+            path = None
+            break
+        parsed = urlparse(next_page)
+        path = parsed.path + ("?" + parsed.query if parsed.query else "")
+    if path:
+        truncated = True
+    return {"results": out, "count": len(out), "truncated": truncated}
+
+
 def find_org(slug):
     for o in CUSTOMER_ORGS:
         if o["slug"] == slug:
@@ -555,6 +635,49 @@ _CLUSTER_NAME_PATTERNS = (
     re.compile(r"cluster[_\s]*name\s*[:=]\s*[\"']?([A-Za-z0-9_.\-]{2,64})", re.IGNORECASE),
     re.compile(r"cluster\s+(?:called|named)\s+[\"']([^\"']{2,64})[\"']", re.IGNORECASE),
 )
+
+# Slack permalinks/channel links pasted into ticket bodies. Matches both
+# workspace links (acme.slack.com/...) and app.slack.com/... forms, stopping at
+# whitespace, quotes, or angle brackets (so HTML hrefs are captured cleanly).
+_SLACK_URL_RE = re.compile(r"https?://[\w.-]*slack\.com/[^\s\"'<>)]+", re.IGNORECASE)
+# A message permalink is .../archives/<CHANNEL>/p<timestamp>; the channel link
+# is the same URL without the trailing /p<ts> segment.
+_SLACK_CHANNEL_RE = re.compile(
+    r"^(https?://[\w.-]*slack\.com/archives/([A-Z0-9]+))", re.IGNORECASE
+)
+
+
+def _slack_channel(url):
+    """Reduce a Slack URL to its channel, dropping any thread/message permalink
+    segment and query/fragment. Returns (channel_url, channel_id), or None if
+    it's not an archives-style link we can confidently collapse to a channel."""
+    url = url.split("?", 1)[0].split("#", 1)[0]
+    m = _SLACK_CHANNEL_RE.match(url)
+    if not m:
+        return None
+    return m.group(1), m.group(2).upper()
+
+
+def extract_slack_links(bundle):
+    """Scan the ticket subject + comment bodies for Slack channel links.
+    Thread/message permalinks are collapsed to their channel. Returns a
+    deduped, order-preserving list of {url, channel_id} dicts."""
+    parts = [bundle["ticket"].get("subject") or ""]
+    for c in bundle["comments"]:
+        parts.append(c.get("body") or "")
+    text = "\n".join(parts)
+
+    links, seen = [], set()
+    for m in _SLACK_URL_RE.finditer(text):
+        channel = _slack_channel(m.group(0).rstrip(".,;"))
+        if not channel:
+            continue
+        url, channel_id = channel
+        if url not in seen:
+            seen.add(url)
+            links.append({"url": url, "channel_id": channel_id})
+    return links
+
 
 def extract_cluster_info(bundle):
     """Scan the ticket subject + comment bodies for Confluent cluster IDs (lkc-/pkc-)
@@ -696,6 +819,7 @@ def build_ticket_meta(bundle, subdomain):
         organization_name = customer_org_name
 
     cluster = extract_cluster_info(bundle)
+    slack_links = extract_slack_links(bundle)
 
     return {
         "ticket_id": t.get("id"),
@@ -714,6 +838,7 @@ def build_ticket_meta(bundle, subdomain):
         "confluent_contacts": confluent_contacts,
         "cluster_ids": cluster["ids"],
         "cluster_names": cluster["names"],
+        "slack_links": slack_links,
     }
 
 # Free-mail domains we don't want to mistake for a customer org.
@@ -1106,6 +1231,342 @@ def split_short_summary(text):
     return val, text[m.end():]
 
 
+# -------------------- Customer analytics --------------------
+
+ANALYTICS_WINDOW_DAYS = 60
+# Batch size for the AI classification call. Most 60-day windows fit in one or
+# two calls; chunking keeps any single prompt a sane size and lets a big org
+# still complete without one giant request.
+_ANALYTICS_BATCH = 50
+
+# Fixed issue-type taxonomy. Claude must pick exactly one of these per ticket so
+# the aggregate is stable across refreshes. "Other" is the catch-all.
+ISSUE_TYPES = [
+    "Connector",
+    "Clients",
+    "Network",
+    "Cluster roll",
+    "Cloud storage",
+    "Schema Registry",
+    "ksqlDB / Flink",
+    "Performance / Throughput",
+    "Security / Auth",
+    "Billing / Account",
+    "Other",
+]
+_ISSUE_TYPE_LOOKUP = {t.lower(): t for t in ISSUE_TYPES}
+_SENTIMENT_ORDER = ["Positive", "Neutral", "Frustrated", "Angry"]
+_SENTIMENT_LOOKUP = {s.lower(): s for s in _SENTIMENT_ORDER}
+
+ANALYTICS_SYSTEM = """You are a support-operations analyst classifying Zendesk support tickets for a Confluent (Apache Kafka) customer-success team. You will receive a numbered list of tickets, each with its id, subject, tags, and a short description excerpt.
+
+For EACH ticket, decide three things:
+1. sentiment — the customer's overall tone. Exactly one of: Positive, Neutral, Frustrated, Angry.
+2. issue_type — the technical category. Exactly one of: {issue_types}. Pick the closest fit; use "Other" only when none apply.
+3. theme — a SHORT (2-4 word) Title Case label for the specific topic, e.g. "Consumer lag", "Connector failures", "Cluster expansion", "Billing dispute", "TLS / certificate errors". Reuse the SAME label across tickets that share a topic so they group together. Keep the total number of distinct themes small.
+
+Output ONLY a JSON array, no prose, no markdown fences. One object per ticket, in the same order:
+[{{"id": <ticket id>, "sentiment": "...", "issue_type": "...", "theme": "..."}}]"""
+
+
+def _ticket_classify_line(idx, t):
+    """Compact one-ticket block for the classification prompt — subject + tags +
+    a trimmed description, no full comment thread (keeps it fast and avoids a
+    per-ticket API fan-out)."""
+    subject = (t.get("subject") or "(no subject)").strip()
+    tags = ", ".join(t.get("tags") or [])
+    desc = re.sub(r"\s+", " ", (t.get("description") or "")).strip()[:280]
+    parts = [f"{idx}. id={t.get('id')} | subject: {subject}"]
+    if tags:
+        parts.append(f"   tags: {tags}")
+    if desc:
+        parts.append(f"   description: {desc}")
+    return "\n".join(parts)
+
+
+def _parse_json_array(text):
+    """Best-effort extract a JSON array from a Claude response that may be
+    wrapped in prose or ```json fences. Returns a list (possibly empty)."""
+    if not text:
+        return []
+    cleaned = re.sub(r"```(?:json)?", "", text).strip()
+    start = cleaned.find("[")
+    end = cleaned.rfind("]")
+    if start == -1 or end == -1 or end < start:
+        return []
+    try:
+        data = json.loads(cleaned[start:end + 1])
+        return data if isinstance(data, list) else []
+    except json.JSONDecodeError:
+        return []
+
+
+def _classify_batch(batch, system):
+    """Classify one batch of tickets. Returns (partial_mapping, error_or_None)."""
+    lines = [_ticket_classify_line(n + 1, t) for n, t in enumerate(batch)]
+    prompt = f"{system}\n\n--- TICKETS ---\n" + "\n".join(lines)
+    text, err = _run_claude(prompt, timeout=240)
+    if err:
+        return {}, err
+    mapping = {}
+    for obj in _parse_json_array(text):
+        if not isinstance(obj, dict) or obj.get("id") is None:
+            continue
+        tid = str(obj.get("id"))
+        sentiment = _SENTIMENT_LOOKUP.get(str(obj.get("sentiment", "")).strip().lower())
+        issue = _ISSUE_TYPE_LOOKUP.get(str(obj.get("issue_type", "")).strip().lower(), "Other")
+        theme = re.sub(r"\s+", " ", str(obj.get("theme", "")).strip())[:48] or "Uncategorized"
+        mapping[tid] = {
+            "sentiment": sentiment or "Neutral",
+            "issue_type": issue,
+            "theme": theme.title() if theme.islower() else theme,
+        }
+    return mapping, None
+
+
+def classify_tickets_ai(tickets):
+    """Run Claude over the ticket set and return
+    {ticket_id(str): {sentiment, issue_type, theme}} plus an error string.
+
+    Returns (mapping, error_or_None). Partial results are kept even if one
+    batch fails."""
+    mapping, errors = {}, []
+    system = ANALYTICS_SYSTEM.format(issue_types=", ".join(ISSUE_TYPES))
+    for i in range(0, len(tickets), _ANALYTICS_BATCH):
+        part, err = _classify_batch(tickets[i:i + _ANALYTICS_BATCH], system)
+        if err:
+            errors.append(err)
+        mapping.update(part)
+    return mapping, _classify_error_summary(errors, mapping)
+
+
+def _classify_error_summary(errors, mapping):
+    if errors and not mapping:
+        return errors[0]
+    if errors:
+        return (f"Some tickets couldn't be classified ({len(errors)} batch error(s)); "
+                "showing partial results.")
+    return None
+
+
+def _counts_sorted(counter, order=None):
+    """Turn a Counter into a UI-ready [{name, count}] list. If `order` is given,
+    use it; otherwise sort by count desc then name."""
+    if order:
+        items = [(name, counter.get(name, 0)) for name in order]
+    else:
+        items = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+    return [{"name": n, "count": c} for n, c in items if c > 0]
+
+
+# Confluent Cloud logical cluster IDs only (lkc-…); physical clusters (pkc-…)
+# are deliberately excluded per the analytics requirement.
+_LKC_ID_RE = re.compile(r"\b(lkc-[a-z0-9]+)\b", re.IGNORECASE)
+
+
+def _ticket_lkc_ids(t):
+    """Deduped lkc- cluster IDs found in a ticket's subject + description.
+    (Analytics only has list-level fields, not full comment threads.)"""
+    text = (t.get("subject") or "") + "\n" + (t.get("description") or "")
+    ids, seen = [], set()
+    for m in _LKC_ID_RE.finditer(text):
+        v = m.group(1).lower()
+        if v not in seen:
+            seen.add(v)
+            ids.append(v)
+    return ids
+
+
+def _issues_by_cluster(tickets, mapping):
+    """Group classified issues by category → cluster (lkc only).
+
+    Only tickets that reference at least one lkc cluster are counted; a ticket
+    touching multiple clusters contributes to each. Returns
+    (groups, tickets_with_cluster) where groups is
+    [{category, total, clusters:[{id, count}]}] sorted by total desc."""
+    cat_cluster = {}
+    tickets_with_cluster = 0
+    for t in tickets:
+        cls = mapping.get(str(t.get("id")))
+        if not cls:
+            continue
+        lkcs = _ticket_lkc_ids(t)
+        if not lkcs:
+            continue
+        tickets_with_cluster += 1
+        bucket = cat_cluster.setdefault(cls["issue_type"], Counter())
+        for cid in lkcs:
+            bucket[cid] += 1
+
+    groups = []
+    for category, counter in cat_cluster.items():
+        clusters = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
+        groups.append({
+            "category": category,
+            "total": sum(counter.values()),
+            "clusters": [{"id": cid, "count": c} for cid, c in clusters],
+        })
+    groups.sort(key=lambda g: (-g["total"], g["category"]))
+    return groups, tickets_with_cluster
+
+
+def _build_analytics_payload(tickets, mapping, ai_error, truncated, since_dt):
+    """Aggregate fetched tickets + AI classification into the dashboard payload."""
+    prio_order = ["urgent", "high", "normal", "low"]
+    prio_counter, status_counter = Counter(), Counter()
+    for t in tickets:
+        p = (t.get("priority") or "").lower()
+        prio_counter[p if p in prio_order else "none"] += 1
+        status_counter[(t.get("status") or "unknown").lower()] += 1
+
+    priority = [
+        {"name": p, "label": PRIORITY_LABELS.get(p, p.title()), "count": prio_counter.get(p, 0)}
+        for p in prio_order
+    ]
+    if prio_counter.get("none"):
+        priority.append({"name": "none", "label": "Unset", "count": prio_counter["none"]})
+    priority = [p for p in priority if p["count"] > 0]
+
+    open_pending_total = sum(status_counter.get(s, 0) for s in ("new", "open", "pending", "hold"))
+    status_breakdown = _counts_sorted(
+        status_counter, order=["new", "open", "pending", "hold", "solved", "closed"]
+    )
+
+    sent_counter, theme_counter, issue_counter = Counter(), Counter(), Counter()
+    for t in tickets:
+        cls = mapping.get(str(t.get("id")))
+        if not cls:
+            continue
+        sent_counter[cls["sentiment"]] += 1
+        theme_counter[cls["theme"]] += 1
+        issue_counter[cls["issue_type"]] += 1
+
+    weekly, weekly_legend = _weekly_created(tickets, since_dt)
+    issues_by_cluster, cluster_coverage = _issues_by_cluster(tickets, mapping)
+
+    return {
+        "window_days": ANALYTICS_WINDOW_DAYS,
+        "since": since_dt.strftime("%Y-%m-%d"),
+        "total": len(tickets),
+        "priority": priority,
+        "status_breakdown": status_breakdown,
+        "open_pending_total": open_pending_total,
+        "weekly": weekly,
+        "weekly_legend": weekly_legend,
+        "sentiment": _counts_sorted(sent_counter, order=_SENTIMENT_ORDER),
+        "themes": _counts_sorted(theme_counter)[:10],
+        "issue_types": _counts_sorted(issue_counter, order=ISSUE_TYPES),
+        "issues_by_cluster": issues_by_cluster,
+        "cluster_coverage": cluster_coverage,
+        "classified": len(mapping),
+        "ai_error": ai_error,
+        "truncated": bool(truncated),
+    }
+
+
+# Priority stacking order for the weekly trend (most→least severe) + "none".
+_WEEKLY_PRIO_ORDER = ["urgent", "high", "normal", "low", "none"]
+
+
+def _weekly_created(tickets, since_dt):
+    """Bucket tickets into 7-day windows by created_at, broken down by priority.
+
+    Returns (weeks, legend) where weeks is
+    [{label, total, segments:[{name,label,count}]}] oldest→newest covering the
+    whole window, and legend is the priorities that actually appear."""
+    now = datetime.now(timezone.utc)
+    total_days = max(1, (now - since_dt).days)
+    num_weeks = (total_days // 7) + 1
+
+    buckets = [Counter() for _ in range(num_weeks)]
+    for t in tickets:
+        created = _parse_iso(t.get("created_at"))
+        if not created:
+            continue
+        idx = (created - since_dt).days // 7
+        idx = max(0, min(idx, num_weeks - 1))
+        p = (t.get("priority") or "").lower()
+        buckets[idx][p if p in _WEEKLY_PRIO_ORDER else "none"] += 1
+
+    present = [p for p in _WEEKLY_PRIO_ORDER if any(b.get(p) for b in buckets)]
+    legend = [
+        {"name": p, "label": "Unset" if p == "none" else PRIORITY_LABELS.get(p, p.title())}
+        for p in present
+    ]
+
+    weeks = []
+    for i, b in enumerate(buckets):
+        wstart = since_dt + timedelta(days=7 * i)
+        segments = [
+            {"name": p, "label": "Unset" if p == "none" else PRIORITY_LABELS.get(p, p.title()),
+             "count": b.get(p, 0)}
+            for p in present if b.get(p, 0) > 0
+        ]
+        weeks.append({
+            "label": wstart.strftime("%b ") + str(wstart.day),
+            "total": sum(b.values()),
+            "segments": segments,
+        })
+    return weeks, legend
+
+
+def compute_analytics_stream(org):
+    """Generator that computes a customer's analytics while reporting progress.
+
+    Yields ('progress', pct:int, stage:str) tuples as it works and finally
+    ('result', payload_dict). Percentages are apportioned so the AI
+    classification — the slow part — fills the 25–88% band, one step per batch.
+    """
+    since_dt = datetime.now(timezone.utc) - timedelta(days=ANALYTICS_WINDOW_DAYS)
+
+    yield ("progress", 5, "Fetching tickets from Zendesk…")
+    data = fetch_org_tickets_since(org["id"], since_dt)
+    tickets = data.get("results", []) or []
+    total = len(tickets)
+
+    if total == 0:
+        yield ("progress", 100, "No tickets in the window.")
+        yield ("result", _build_analytics_payload([], {}, None, data.get("truncated"), since_dt))
+        return
+
+    yield ("progress", 18, f"Found {total} tickets · tallying priorities & statuses…")
+
+    # --- AI classification, batch by batch (25 → 88%) ---
+    system = ANALYTICS_SYSTEM.format(issue_types=", ".join(ISSUE_TYPES))
+    batches = [tickets[i:i + _ANALYTICS_BATCH] for i in range(0, total, _ANALYTICS_BATCH)]
+    n = len(batches)
+    mapping, errors = {}, []
+    yield ("progress", 25, f"Classifying {total} tickets with Claude"
+                           + (f" ({n} batches)…" if n > 1 else "…"))
+    for idx, batch in enumerate(batches):
+        part, err = _classify_batch(batch, system)
+        if err:
+            errors.append(err)
+        mapping.update(part)
+        pct = 25 + int(63 * (idx + 1) / n)
+        label = (f"Classified batch {idx + 1} of {n}…" if n > 1
+                 else "Sentiment, themes & issue types classified…")
+        yield ("progress", pct, label)
+
+    yield ("progress", 92, "Aggregating sentiment, themes & issue types…")
+    payload = _build_analytics_payload(
+        tickets, mapping, _classify_error_summary(errors, mapping),
+        data.get("truncated"), since_dt,
+    )
+    yield ("progress", 98, "Saving snapshot…")
+    yield ("result", payload)
+
+
+def compute_analytics(org):
+    """Run the analytics pipeline to completion and return the payload dict.
+    (Drains compute_analytics_stream — used by the no-JS POST fallback.)"""
+    payload = None
+    for evt in compute_analytics_stream(org):
+        if evt[0] == "result":
+            payload = evt[1]
+    return payload
+
+
 # -------------------- Routes --------------------
 
 def _lens_statuses(user):
@@ -1163,20 +1624,21 @@ def ticket_lens_home():
     )
 
 
-@app.route("/c/<slug>")
-def view_customer(slug):
-    org = find_org(slug)
-    if not org:
-        return render_template("error.html", message=f"Unknown customer: {slug}"), 404
+def _org_screen_response(org, show_all=False):
+    """Render the tickets screen for an org dict (needs id, name; slug optional).
+    Shared by the configured-customer route and the by-org-id route. Handles the
+    ?refresh=1 cache bust and Zendesk error rendering.
+
+    `show_all=True` lists every ticket created in the last ANALYTICS_WINDOW_DAYS
+    days regardless of status; otherwise just the active new/open/pending set."""
     if request.args.get("refresh") == "1":
-        # Wipe cached pages of this org's ticket listing so we re-fetch fresh.
-        with db() as c:
-            c.execute(
-                "DELETE FROM cache WHERE key LIKE ?",
-                (f"%/organizations/{org['id']}/tickets.json%",),
-            )
+        _wipe_org_ticket_cache(org["id"])
     try:
-        data = fetch_org_active_tickets(org["id"])
+        if show_all:
+            since_dt = datetime.now(timezone.utc) - timedelta(days=ANALYTICS_WINDOW_DAYS)
+            data = fetch_org_tickets_since(org["id"], since_dt)
+        else:
+            data = fetch_org_active_tickets(org["id"])
     except AuthError as e:
         return render_template("error.html", message=str(e)), 401
     except requests.ConnectionError as e:
@@ -1199,13 +1661,6 @@ def view_customer(slug):
     new_count = sum(1 for t in tickets if t["status"] == "new")
     open_count = sum(1 for t in tickets if t["status"] == "open")
     pending_count = sum(1 for t in tickets if t["status"] == "pending")
-    # Priority breakdown across the active set, in display order.
-    priority_order = ["urgent", "high", "normal", "low"]
-    priority_counts = [
-        {"name": p, "count": sum(1 for t in tickets if (t["priority"] or "").lower() == p)}
-        for p in priority_order
-    ]
-    priority_counts = [pc for pc in priority_counts if pc["count"] > 0]
     return render_template(
         "customer.html",
         org=org,
@@ -1213,25 +1668,252 @@ def view_customer(slug):
         new_count=new_count,
         open_count=open_count,
         pending_count=pending_count,
-        priority_counts=priority_counts,
         total_count=len(tickets),
         truncated=bool(data.get("truncated")),
+        show_all=show_all,
+        window_days=ANALYTICS_WINDOW_DAYS,
         subdomain=SUBDOMAIN,
     )
+
+
+@app.route("/c/<slug>")
+def view_customer(slug):
+    org = find_org(slug)
+    if not org:
+        return render_template("error.html", message=f"Unknown customer: {slug}"), 404
+    # Configured customers default to the active set; ?status=all shows everything.
+    show_all = request.args.get("status", "active") == "all"
+    return _org_screen_response(org, show_all=show_all)
+
+
+@app.route("/org/<org_id>")
+def view_org(org_id):
+    """Org tickets screen looked up by Zendesk organization ID. Configured
+    customers redirect to their canonical /c/<slug> URL (so analytics and
+    caching keys line up); any other org renders the same screen ad-hoc."""
+    for o in CUSTOMER_ORGS:
+        if str(o.get("id")) == str(org_id):
+            return redirect(url_for("view_customer", slug=o["slug"]))
+    try:
+        raw = fetch_organization(org_id)
+    except AuthError as e:
+        return render_template("error.html", message=str(e)), 401
+    except requests.RequestException as e:
+        return render_template("error.html", message=f"Zendesk request failed: {e}"), 502
+    if not raw:
+        return render_template(
+            "error.html", message=f"No organization found with id {org_id}."
+        ), 404
+    org = {"id": raw.get("id"), "name": raw.get("name") or f"Organization {org_id}", "slug": None}
+    # Org-ID lookups default to "all" (an org may have only solved/closed
+    # tickets); ?status=active narrows to the active set.
+    show_all = request.args.get("status", "all") == "all"
+    return _org_screen_response(org, show_all=show_all)
+
+def _wipe_org_ticket_cache(org_id):
+    """Drop cached pages of an org's ticket listing so the window is fresh."""
+    with db() as c:
+        c.execute(
+            "DELETE FROM cache WHERE key LIKE ?",
+            (f"%/organizations/{org_id}/tickets.json%",),
+        )
+
+
+def _analytics_urls(org):
+    """The four endpoint URLs analytics.html needs, routed to the slug-based
+    endpoints for configured customers or the org-ID endpoints otherwise."""
+    if org.get("slug"):
+        return {
+            "back_url": url_for("view_customer", slug=org["slug"]),
+            "view_url": url_for("customer_analytics", slug=org["slug"]),
+            "refresh_url": url_for("customer_analytics_refresh", slug=org["slug"]),
+            "stream_url": url_for("customer_analytics_stream", slug=org["slug"]),
+        }
+    return {
+        "back_url": url_for("view_org", org_id=org["id"]),
+        "view_url": url_for("org_analytics", org_id=org["id"]),
+        "refresh_url": url_for("org_analytics_refresh", org_id=org["id"]),
+        "stream_url": url_for("org_analytics_stream", org_id=org["id"]),
+    }
+
+
+def _render_analytics(org, key):
+    """Render the analytics dashboard for an org dict using `key` as the
+    storage key (a customer slug, or the org ID for ad-hoc orgs)."""
+    payload, generated_at = analytics_get(key)
+    urls = _analytics_urls(org)
+    return render_template(
+        "analytics.html",
+        org=org,
+        data=payload,
+        generated_at=_fmt_dt(datetime.fromtimestamp(generated_at, timezone.utc)) if generated_at else None,
+        subdomain=SUBDOMAIN,
+        back_url=urls["back_url"],
+        refresh_url=urls["refresh_url"],
+        stream_url=urls["stream_url"],
+    )
+
+
+def _analytics_refresh(org, key, redirect_url):
+    """No-JS fallback: compute synchronously, persist under `key`, redirect."""
+    _wipe_org_ticket_cache(org["id"])
+    try:
+        payload = compute_analytics(org)
+    except AuthError as e:
+        return render_template("error.html", message=str(e)), 401
+    except requests.RequestException as e:
+        return render_template("error.html", message=f"Zendesk request failed: {e}"), 502
+    analytics_set(key, payload)
+    return redirect(redirect_url)
+
+
+def _analytics_stream(org, key, redirect_url):
+    """NDJSON progress stream: {type:"progress", pct, stage} … then
+    {type:"done", redirect} or {type:"error", error}."""
+    _wipe_org_ticket_cache(org["id"])
+
+    def event_stream():
+        try:
+            payload = None
+            for evt in compute_analytics_stream(org):
+                if evt[0] == "progress":
+                    yield json.dumps({"type": "progress", "pct": evt[1], "stage": evt[2]}) + "\n"
+                elif evt[0] == "result":
+                    payload = evt[1]
+            analytics_set(key, payload)
+            yield json.dumps({"type": "done", "redirect": redirect_url}) + "\n"
+        except AuthError as e:
+            yield json.dumps({"type": "error", "error": str(e)}) + "\n"
+        except requests.RequestException as e:
+            yield json.dumps({"type": "error", "error": f"Zendesk request failed: {e}"}) + "\n"
+        except Exception as e:  # noqa: BLE001 — surface anything else to the UI
+            yield json.dumps({"type": "error", "error": f"Generation failed: {e}"}) + "\n"
+
+    return Response(
+        stream_with_context(event_stream()),
+        mimetype="application/x-ndjson",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
+def _org_for_analytics(org_id):
+    """Resolve an org dict for the org-ID analytics routes. Configured customers
+    are handled by the slug routes, so here we only hit Zendesk. Returns
+    (org_dict, error_response) — exactly one is non-None."""
+    try:
+        raw = fetch_organization(org_id)
+    except AuthError as e:
+        return None, (render_template("error.html", message=str(e)), 401)
+    except requests.RequestException as e:
+        return None, (render_template("error.html", message=f"Zendesk request failed: {e}"), 502)
+    if not raw:
+        return None, (render_template("error.html", message=f"No organization found with id {org_id}."), 404)
+    return {"id": raw.get("id"), "name": raw.get("name") or f"Organization {org_id}", "slug": None}, None
+
+
+# ---- Configured-customer analytics (keyed by slug) ----
+
+@app.route("/c/<slug>/analytics")
+def customer_analytics(slug):
+    org = find_org(slug)
+    if not org:
+        return render_template("error.html", message=f"Unknown customer: {slug}"), 404
+    return _render_analytics(org, slug)
+
+
+@app.route("/c/<slug>/analytics/refresh", methods=["POST"])
+def customer_analytics_refresh(slug):
+    org = find_org(slug)
+    if not org:
+        return render_template("error.html", message=f"Unknown customer: {slug}"), 404
+    return _analytics_refresh(org, slug, url_for("customer_analytics", slug=slug))
+
+
+@app.route("/c/<slug>/analytics/stream", methods=["POST"])
+def customer_analytics_stream(slug):
+    org = find_org(slug)
+    if not org:
+        return jsonify({"error": f"Unknown customer: {slug}"}), 404
+    return _analytics_stream(org, slug, url_for("customer_analytics", slug=slug))
+
+
+# ---- Ad-hoc org analytics (keyed by Zendesk org ID) ----
+
+@app.route("/org/<org_id>/analytics")
+def org_analytics(org_id):
+    for o in CUSTOMER_ORGS:
+        if str(o.get("id")) == str(org_id):
+            return redirect(url_for("customer_analytics", slug=o["slug"]))
+    org, err = _org_for_analytics(org_id)
+    if err:
+        return err
+    return _render_analytics(org, str(org_id))
+
+
+@app.route("/org/<org_id>/analytics/refresh", methods=["POST"])
+def org_analytics_refresh(org_id):
+    org, err = _org_for_analytics(org_id)
+    if err:
+        return err
+    return _analytics_refresh(org, str(org_id), url_for("org_analytics", org_id=org_id))
+
+
+@app.route("/org/<org_id>/analytics/stream", methods=["POST"])
+def org_analytics_stream(org_id):
+    org, err = _org_for_analytics(org_id)
+    if err:
+        return err
+    return _analytics_stream(org, str(org_id), url_for("org_analytics", org_id=org_id))
+
 
 @app.route("/ticket", methods=["POST"])
 def ticket_form():
     raw = (request.form.get("ticket") or "").strip()
-    tid = parse_ticket_id(raw)
-    if not tid:
+    num = parse_ticket_id(raw)
+    if not num:
         return render_template(
             "error.html",
             message=(
-                f"Couldn't read a ticket ID from \"{raw or '(empty)'}\". "
-                "Enter a numeric ticket id like 12345, or a full Zendesk ticket URL."
+                f"Couldn't read an ID from \"{raw or '(empty)'}\". "
+                "Enter a ticket ID like 12345, a Zendesk ticket URL, or an organization ID."
             ),
         ), 400
-    return redirect(url_for("view_ticket", ticket_id=tid))
+
+    # Default: treat the number as a ticket ID. Only if there's no such ticket
+    # do we fall back to interpreting it as an organization ID.
+    try:
+        fetch_ticket(num)
+        return redirect(url_for("view_ticket", ticket_id=num))
+    except AuthError as e:
+        return render_template("error.html", message=str(e)), 401
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else None
+        if status != 404:
+            return render_template("error.html", message=f"Zendesk returned an error: {e}"), 502
+        # 404 → no matching ticket; fall through to the org lookup below.
+    except requests.RequestException as e:
+        return render_template("error.html", message=f"Zendesk request failed: {e}"), 502
+
+    # Org fallback: configured customer first (canonical URL), then any Zendesk org.
+    for o in CUSTOMER_ORGS:
+        if str(o.get("id")) == str(num):
+            return redirect(url_for("view_customer", slug=o["slug"]))
+    try:
+        org = fetch_organization(num)
+    except AuthError as e:
+        return render_template("error.html", message=str(e)), 401
+    except requests.RequestException as e:
+        return render_template("error.html", message=f"Zendesk request failed: {e}"), 502
+    if org:
+        return redirect(url_for("view_org", org_id=num))
+
+    return render_template(
+        "error.html",
+        message=(
+            f"No ticket or organization found for id {num}. "
+            "Double-check the ID — enter a Zendesk ticket ID, a ticket URL, or an organization ID."
+        ),
+    ), 404
 
 @app.route("/t/<ticket_id>")
 def view_ticket(ticket_id):
