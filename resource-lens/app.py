@@ -408,7 +408,7 @@ def cfc_get(path, ttl=CACHE_TTL_SECONDS, cache_key=None):
     if cached is not None:
         return cached
     url = f"https://confluent.cloud{path}"
-    r = requests.get(url, headers=_cfc_headers(), timeout=30)
+    r = requests.get(url, headers=_cfc_headers(), timeout=60)
     if r.status_code in (401, 403):
         raise MetricLensAuthError(
             f"Confluent Cloud auth failed ({r.status_code}). Your session cookie "
@@ -449,7 +449,7 @@ def cfc_post(path, payload=None, ttl=CACHE_TTL_SECONDS, cache_key=None):
     if payload is not None:
         headers["Content-Type"] = "application/json"
         post_kwargs["json"] = payload
-    r = requests.post(url, headers=headers, timeout=30, **post_kwargs)
+    r = requests.post(url, headers=headers, timeout=60, **post_kwargs)
     if r.status_code in (401, 403):
         raise MetricLensAuthError(
             f"Confluent Cloud auth failed ({r.status_code}). Your session cookie "
@@ -695,7 +695,7 @@ def fetch_cluster_obs(org_id, lkc_id, ttl=CACHE_TTL_SECONDS):
                 "Referer": f"{_OBS_BASE}/resources/{org_id}",
                 "User-Agent": _CFC_UA,
             },
-            timeout=30,
+            timeout=60,
         )
     except requests.RequestException:
         return None

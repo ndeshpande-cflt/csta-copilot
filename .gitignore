@@ -52,5 +52,12 @@ temp.txt
 # (public) repo. Each user keeps a local copy; see customers.example.json.
 customers.json
 
+# Generated per-cluster topic reports — contain decrypted topic names, which
+# are sensitive customer data. Never commit.
+resource-lens/topic-reports/clusters/
+
+# Local Claude Code project settings — keep out of version control.
+**/.claude/settings.json
+
 # macOS
 .DS_Store
