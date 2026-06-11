@@ -875,12 +875,13 @@ def _derive_customer_name(customer_contacts):
 
 # -------------------- Summary generation --------------------
 
-SHORT_SUMMARY_SYSTEM = """Summarize this support ticket. Your output must start with a single SENTIMENT line, then the three markdown sections below. No preamble, no closing remarks, no bullets.
+SHORT_SUMMARY_SYSTEM = """Summarize this support ticket. Your output must start with a SENTIMENT line and a THEME line, then the three markdown sections below. No preamble, no closing remarks, no bullets.
 
-The very first line must be exactly:
+The first two lines must be exactly:
 SENTIMENT: <one of: Positive, Neutral, Frustrated, Angry>
+THEME: <a SHORT 2-4 word Title Case label for the specific topic, e.g. "Consumer Lag", "Connector Failures", "Cluster Expansion", "Billing Dispute", "TLS / Certificate Errors">
 
-Pick the value that best reflects the customer's overall tone across the conversation, based on their language and urgency. Then a blank line, then:
+For SENTIMENT, pick the value that best reflects the customer's overall tone across the conversation, based on their language and urgency. For THEME, name the core technical/business topic concisely. Then a blank line, then:
 
 ## Issue
 One short paragraph describing what the customer is reporting or asking for.
@@ -1212,23 +1213,33 @@ def get_or_generate_summary(ticket_id, bundle, kind, force=False):
     store_summary(ticket_id, kind, content)
     return content
 
-_SENTIMENT_RE = re.compile(r"^\s*SENTIMENT\s*:\s*([^\n]+?)\s*\n+", re.IGNORECASE)
 _VALID_SENTIMENTS = {"positive", "neutral", "frustrated", "angry"}
+_MARKER_RE = re.compile(r"[ \t]*(SENTIMENT|THEME)[ \t]*:[ \t]*([^\n]+?)[ \t]*(?:\n+|$)",
+                        re.IGNORECASE)
 
 def split_short_summary(text):
-    """Pull the leading 'SENTIMENT: X' marker out of the short summary.
+    """Pull the leading 'SENTIMENT: X' and 'THEME: Y' marker lines off the short
+    summary.
 
-    Returns (sentiment_value or None, body_without_marker).
+    Returns (sentiment or None, theme or None, body_without_markers).
     """
     if not text:
-        return None, text
-    m = _SENTIMENT_RE.match(text)
-    if not m:
-        return None, text
-    val = m.group(1).strip()
-    if val.lower() not in _VALID_SENTIMENTS:
-        return None, text
-    return val, text[m.end():]
+        return None, None, text
+    sentiment = theme = None
+    body = text.lstrip("\n")
+    while True:
+        m = _MARKER_RE.match(body)
+        if not m:
+            break
+        key, val = m.group(1).upper(), m.group(2).strip()
+        if key == "SENTIMENT":
+            if val.lower() not in _VALID_SENTIMENTS:
+                break  # not a real marker — leave the text intact
+            sentiment = val
+        else:  # THEME
+            theme = val[:48] or None
+        body = body[m.end():]
+    return sentiment, theme, body
 
 
 # -------------------- Customer analytics --------------------
@@ -1929,10 +1940,10 @@ def view_ticket(ticket_id):
         # paints instantly. Only inline a cached value when one is available.
         short_raw = fetch_cached_summary(ticket_id, "short", bundle=bundle)
         if short_raw:
-            sentiment, short_summary = split_short_summary(short_raw)
+            sentiment, theme, short_summary = split_short_summary(short_raw)
             short_pending = False
         else:
-            sentiment, short_summary = None, ""
+            sentiment, theme, short_summary = None, None, ""
             short_pending = True
         # Long summary is on-demand: only show if it's already cached and still fresh.
         long_summary = fetch_cached_summary(ticket_id, "long", bundle=bundle)
@@ -1956,6 +1967,7 @@ def view_ticket(ticket_id):
     except requests.RequestException as e:
         return render_template("error.html", message=f"Zendesk request failed: {e}"), 502
     meta["sentiment"] = sentiment
+    meta["theme"] = theme
     discussion_snippets = extract_discussion_snippets(bundle)
     return render_template(
         "ticket.html",
@@ -1991,8 +2003,8 @@ def generate_short_summary(ticket_id):
         return jsonify({"error": str(e)}), 401
     except requests.RequestException as e:
         return jsonify({"error": f"Couldn't reach Zendesk: {e}"}), 502
-    sentiment, content = split_short_summary(raw)
-    return jsonify({"content": content, "sentiment": sentiment})
+    sentiment, theme, content = split_short_summary(raw)
+    return jsonify({"content": content, "sentiment": sentiment, "theme": theme})
 
 CHAT_SYSTEM_PROMPT = """You are a helpful assistant answering questions about a specific Zendesk customer-success ticket.
 

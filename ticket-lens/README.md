@@ -4,6 +4,16 @@ A small Flask tool that uses your browser session cookie (no API key needed) to
 pull Zendesk tickets and generate "30-second briefs" by shelling out to the
 Claude Code CLI.
 
+What you get:
+
+- **Ticket briefs** — open any ticket for a short brief (sentiment, what's
+  happening, next step) plus an on-demand long-form summary with action items.
+- **Ticket chat** — ask follow-up questions about a ticket; answers can be
+  enriched with internal Glean search.
+- **Analytics dashboards** — per-customer (`/c/<slug>/analytics`) and per-org
+  (`/org/<org_id>/analytics`) 60-day breakdowns of ticket volume, status,
+  priority, and AI-classified sentiment/themes/issue types.
+
 ## Prerequisites
 
 - Python 3.9+
@@ -123,11 +133,13 @@ stays local and is never committed. Keep your own copy.
 
 For each ticket request:
 1. Fetches ticket + paginated comments + user details using your cookie
-2. Writes the conversation to a temp file
-3. Runs `claude -p "<prompt referencing the temp file>"` — Claude Code reads
-   the file and produces the brief
+2. Assembles the conversation into a prompt
+3. Runs `claude -p` with the prompt piped in via stdin — Claude Code produces
+   the brief (the app strips any `ANTHROPIC_*` / Bedrock / Vertex env vars so it
+   uses your signed-in Claude Code session, not an API key)
 4. Caches the result in `cache.db` and renders the UI
 
+Briefs and analytics use Opus; chat uses Opus and can call the Glean MCP server.
 No API key, no Anthropic billing — just whatever auth Claude Code already has.
 
 ## When your session expires
@@ -154,6 +166,6 @@ browser automatically.
   (you'll get 429s). The TTL cache helps; keep it on.
 - **Claude Code permissions:** The brief prompt explicitly tells Claude not to
   modify any files, but Claude Code's general permissions still apply. The
-  temp file written for each request is deleted immediately after.
+  prompt is piped to the CLI via stdin — nothing is written to disk for it.
 - **Sensitive data:** Tickets often contain PII. Make sure using Claude Code
   on this content is consistent with your org's policies.

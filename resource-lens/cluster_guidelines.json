@@ -1,0 +1,46 @@
+{
+  "source": {
+    "title": "Kafka Cluster Types in Confluent Cloud",
+    "url": "https://docs.confluent.io/cloud/current/clusters/cluster-types.html"
+  },
+  "notes": {
+    "unit_meaning": {
+      "standard": "eCKU",
+      "enterprise": "eCKU",
+      "dedicated": "CKU"
+    },
+    "dimension_types": {
+      "ingress_mb_per_sec": "guideline",
+      "egress_mb_per_sec": "guideline",
+      "partitions_pre_replication": "fixed_limit",
+      "total_client_connections": "guideline",
+      "requests_per_sec": "guideline"
+    }
+  },
+  "clusters": {
+    "standard": {
+      "unit": "eCKU",
+      "ingress_mb_per_sec": 25,
+      "egress_mb_per_sec": 75,
+      "partitions_pre_replication": 250,
+      "total_client_connections": 1000,
+      "requests_per_sec": 1500
+    },
+    "enterprise": {
+      "unit": "eCKU",
+      "ingress_mb_per_sec": 60,
+      "egress_mb_per_sec": 180,
+      "partitions_pre_replication": 3000,
+      "total_client_connections": 18000,
+      "requests_per_sec": 7500
+    },
+    "dedicated": {
+      "unit": "CKU",
+      "ingress_mb_per_sec": 60,
+      "egress_mb_per_sec": 180,
+      "partitions_pre_replication": 4500,
+      "total_client_connections": 18000,
+      "requests_per_sec": 15000
+    }
+  }
+}

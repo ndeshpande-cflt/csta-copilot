@@ -21,6 +21,7 @@ The decrypt API uses CONFLUENT_COOKIE from the project .env (your
 admin.confluent.cloud session cookie, containing internal_auth_token).
 """
 import argparse
+import html
 import json
 import os
 import sys
@@ -45,6 +46,12 @@ GRAFANA_URL = (
 )
 DECRYPT_URL = "https://confluent.cloud/api/internal/topic/v1/decrypt"
 
+# received_bytes is a per-window rate we sum for the normal report. retained_bytes
+# is a storage gauge used for idle detection: it surfaces topics regardless of
+# recent ingress, so genuinely-empty topics show up (received_bytes omits them).
+METRIC_RECEIVED_BYTES = "io.confluent.kafka.server/received_bytes"
+METRIC_RETAINED_BYTES = "io.confluent.kafka.server/retained_bytes"
+
 
 def human_bytes(n):
     """Format a byte count like Grafana does (1024-based)."""
@@ -56,8 +63,14 @@ def human_bytes(n):
     return f"{n:,.2f} EB"
 
 
-def fetch_topic_bytes(cluster_id, cookie, hours=24, debug=False):
-    """Return a list of (topic_pseudonym, total_received_bytes) for the cluster."""
+def fetch_topic_bytes(cluster_id, cookie, hours=24, debug=False,
+                      metric=METRIC_RECEIVED_BYTES, agg="sum"):
+    """Fetch a per-topic byte metric for the cluster.
+
+    `metric` is the Confluent metric to query; `agg` is how to combine a topic's
+    time-series points ("sum" for rate metrics like received_bytes, "max" for
+    gauges like retained_bytes). Returns (topics, from_ms, to_ms): the list of
+    (topic_pseudonym, value) plus the epoch-ms query window actually used."""
     now_ms = int(time.time() * 1000)
     from_ms = now_ms - hours * 3600 * 1000
 
@@ -65,7 +78,7 @@ def fetch_topic_bytes(cluster_id, cookie, hours=24, debug=False):
         {
             "group_by": ["metric.topic"],
             "aggregations": [
-                {"metric": "io.confluent.kafka.server/received_bytes"}
+                {"metric": metric}
             ],
             "filter": {
                 "field": "resource.kafka.id",
@@ -120,16 +133,17 @@ def fetch_topic_bytes(cluster_id, cookie, hours=24, debug=False):
     body = resp.json()
     if debug:
         print(f"[debug] response keys: {list(body.keys())}", file=sys.stderr)
-    return _parse_frames(body, debug=debug)
+    return _parse_frames(body, debug=debug, agg=agg), from_ms, now_ms
 
 
-def _parse_frames(body, debug=False):
-    """Pull (topic, summed bytes) out of the Grafana dataframe response.
+def _parse_frames(body, debug=False, agg="sum"):
+    """Pull (topic, value) out of the Grafana dataframe response.
 
     Grafana returns either one frame per series ("long") or a single "wide"
     frame with a time column plus *one value field per topic*. We handle both by
     treating EVERY numeric (non-time) field as its own topic series, keyed by its
-    `metric.topic` label.
+    `metric.topic` label. `agg` controls how a series' points are combined and how
+    duplicate topic rows merge: "sum" (rate totals) or "max" (gauge peak).
     """
     results = []
     frames = body.get("results", {}).get("A", {}).get("frames", [])
@@ -158,14 +172,18 @@ def _parse_frames(body, debug=False):
                 continue
             if idx >= len(values):
                 continue
-            total = sum(v for v in values[idx] if isinstance(v, (int, float)))
+            nums = [v for v in values[idx] if isinstance(v, (int, float))]
+            value = (max(nums) if nums else 0.0) if agg == "max" else sum(nums)
             if topic:
-                results.append((topic, total))
+                results.append((topic, value))
 
-    # Merge any duplicate topic rows.
+    # Merge any duplicate topic rows using the same aggregation.
     merged = {}
-    for topic, total in results:
-        merged[topic] = merged.get(topic, 0.0) + total
+    for topic, value in results:
+        if topic in merged:
+            merged[topic] = max(merged[topic], value) if agg == "max" else merged[topic] + value
+        else:
+            merged[topic] = value
     return sorted(merged.items(), key=lambda kv: kv[1], reverse=True)
 
 
@@ -253,6 +271,86 @@ def _cookie_dict(cookie_str):
     return jar
 
 
+def _format_range(from_ms, to_ms, hours):
+    """Human-readable query window, e.g. '2026-06-09 10:00 → 2026-06-10 10:00 IST
+    (last 24h)'. Falls back to just the duration if timestamps are missing."""
+    if from_ms is None or to_ms is None:
+        return f"last {hours}h"
+    fmt = "%Y-%m-%d %H:%M"
+    start = time.strftime(fmt, time.localtime(from_ms / 1000))
+    end = time.strftime(fmt + " %Z", time.localtime(to_ms / 1000))
+    return f"{start} → {end} (last {hours}h)"
+
+
+def _render_html(cluster_id, hours, rows, grand_total, from_ms=None, to_ms=None,
+                 idle=False):
+    """Render the topic report as a small, self-contained HTML page."""
+    generated = time.strftime("%Y-%m-%d %H:%M:%S %Z")
+    range_str = _format_range(from_ms, to_ms, hours)
+    heading = ("Idle topics (0 bytes retained)" if idle
+               else "Received bytes by topic")
+    title_prefix = "Idle topics" if idle else "Topic report"
+    value_col = "Retained bytes" if idle else "Received bytes"
+    body_rows = []
+    for name, pseudonym, total in rows:
+        decrypted = name != pseudonym
+        # Show the pseudonym as a tooltip when we resolved a real name.
+        title = f' title="{html.escape(pseudonym)}"' if decrypted else ""
+        cls = "" if decrypted else ' class="raw"'
+        body_rows.append(
+            f"      <tr><td{title}{cls}>{html.escape(name)}</td>"
+            f"<td class='num'>{human_bytes(total)}</td></tr>"
+        )
+    rows_html = "\n".join(body_rows)
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title_prefix} — {html.escape(cluster_id)}</title>
+<style>
+  body {{ font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+         margin: 2rem; color: #1a1a1a; background: #fafafa; }}
+  h1 {{ font-size: 1.3rem; margin: 0 0 .25rem; }}
+  .meta {{ color: #666; font-size: .85rem; margin-bottom: 1.25rem; }}
+  table {{ border-collapse: collapse; width: 100%; max-width: 760px;
+          background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.08); }}
+  th, td {{ padding: .5rem .75rem; border-bottom: 1px solid #eee; text-align: left; }}
+  th {{ background: #f0f3f7; font-size: .8rem; text-transform: uppercase;
+       letter-spacing: .04em; color: #555; }}
+  td.num, th.num {{ text-align: right; font-variant-numeric: tabular-nums;
+                   white-space: nowrap; }}
+  tr:hover td {{ background: #f7faff; }}
+  td.raw {{ color: #999; font-family: ui-monospace, Menlo, monospace; font-size: .85rem; }}
+  td {{ font-family: ui-monospace, Menlo, monospace; font-size: .9rem; }}
+  tfoot td {{ font-weight: 600; border-top: 2px solid #ddd; }}
+</style>
+</head>
+<body>
+  <h1>{heading} — {html.escape(cluster_id)}</h1>
+  <div class="meta">
+    <div><strong>Time range:</strong> {html.escape(range_str)}</div>
+    <div><strong>Generated:</strong> {html.escape(generated)}</div>
+    <div><strong>Topics:</strong> {len(rows)}</div>
+  </div>
+  <table>
+    <thead>
+      <tr><th>Topic</th><th class="num">{value_col}</th></tr>
+    </thead>
+    <tbody>
+{rows_html}
+    </tbody>
+    <tfoot>
+      <tr><td>{"Idle topics" if idle else "Total"} ({len(rows)} topics)</td>
+          <td class="num">{"—" if idle else human_bytes(grand_total)}</td></tr>
+    </tfoot>
+  </table>
+</body>
+</html>
+"""
+
+
 def _resolve_grafana_cookie(args):
     """Decide which Grafana cookie to use, capturing a fresh one if needed.
 
@@ -295,6 +393,9 @@ def main():
                         help="Look-back window in hours (default 24)")
     parser.add_argument("--no-decrypt", action="store_true",
                         help="Skip decryption, just show pseudonyms")
+    parser.add_argument("--idle", action="store_true",
+                        help="Only include topics that received 0 bytes in the window "
+                             "(idle topics); these are then the only ones decrypted")
     parser.add_argument("--concurrency", type=int, default=8,
                         help="Parallel decrypt requests (default 8)")
     parser.add_argument("--debug", action="store_true",
@@ -313,12 +414,32 @@ def main():
         sys.exit("CONFLUENT_COOKIE not set in .env (needed for the decrypt API). "
                  "Use --no-decrypt to skip decryption.")
 
-    print(f"Fetching received bytes for {args.cluster_id} (last {args.hours}h)...")
-    topics = fetch_topic_bytes(args.cluster_id, grafana_cookie, hours=args.hours,
-                               debug=args.debug)
+    # --idle uses retained_bytes (a storage gauge, peak over the window) rather
+    # than received_bytes, because received_bytes omits topics with no ingress
+    # entirely — so they'd never be seen. metric_word labels the output column.
+    metric = METRIC_RETAINED_BYTES if args.idle else METRIC_RECEIVED_BYTES
+    agg = "max" if args.idle else "sum"
+    metric_word = "retained" if args.idle else "received"
+
+    print(f"Fetching {metric_word} bytes for {args.cluster_id} (last {args.hours}h)...")
+    topics, from_ms, to_ms = fetch_topic_bytes(
+        args.cluster_id, grafana_cookie, hours=args.hours, debug=args.debug,
+        metric=metric, agg=agg)
     if not topics:
         print("No topic data returned. Check the cluster id / cookie / time window.")
         return
+
+    # --idle: keep only topics holding no data (retained bytes round to 0 B), so
+    # that the subsequent decryption runs against just those. The gauge is a float,
+    # so a topic shown as "0 B" can be a sub-byte fraction — match the display by
+    # rounding to whole bytes.
+    if args.idle:
+        total_count = len(topics)
+        topics = [(t, b) for t, b in topics if round(float(b)) == 0]
+        print(f"--idle: {len(topics)} of {total_count} topic(s) have 0 retained bytes.")
+        if not topics:
+            print("No idle topics — every topic received data in the window.")
+            return
 
     to_decrypt = [p for p, _ in topics
                   if not args.no_decrypt and p.startswith("NH")]
@@ -355,27 +476,34 @@ def main():
     # Build the report once, then both print it and save it to a file.
     name_w = min(max((len(r[0]) for r in rows), default=10), 60)
     grand_total = sum(r[2] for r in rows)
+    report_kind = "Idle topics (0 bytes retained)" if args.idle else "Topic received-bytes report"
+    col_header = f"{metric_word.upper()} BYTES"
     lines = [
-        f"# Topic received-bytes report for {args.cluster_id}",
+        f"# {report_kind} for {args.cluster_id}",
         f"# Window: last {args.hours}h  |  Generated: "
         f"{time.strftime('%Y-%m-%d %H:%M:%S %Z')}",
         "",
-        f"{'TOPIC':<{name_w}}  {'RECEIVED BYTES':>16}",
+        f"{'TOPIC':<{name_w}}  {col_header:>16}",
         f"{'-' * name_w}  {'-' * 16}",
     ]
     for name, pseudonym, total in rows:
         display = name if len(name) <= name_w else name[: name_w - 1] + "…"
         lines.append(f"{display:<{name_w}}  {human_bytes(total):>16}")
     lines.append("")
-    lines.append(f"{len(rows)} topics, {human_bytes(grand_total)} total received.")
+    if args.idle:
+        lines.append(f"{len(rows)} idle topic(s) with 0 retained bytes.")
+    else:
+        lines.append(f"{len(rows)} topics, {human_bytes(grand_total)} total received.")
 
-    report = "\n".join(lines)
-    print(report)
+    print("\n".join(lines))
 
-    out_dir = HERE / "clusters"
+    # Idle runs go to a separate file so they don't overwrite the full report.
+    out_dir = HERE / "reports-output" / "topics"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{args.cluster_id}.txt"
-    out_path.write_text(report + "\n")
+    suffix = "-idle" if args.idle else ""
+    out_path = out_dir / f"{args.cluster_id}{suffix}.html"
+    out_path.write_text(_render_html(args.cluster_id, args.hours, rows, grand_total,
+                                     from_ms=from_ms, to_ms=to_ms, idle=args.idle))
     print(f"\nSaved report to {out_path}")
 
 

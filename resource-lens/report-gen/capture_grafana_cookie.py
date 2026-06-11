@@ -4,7 +4,7 @@ capture_grafana_cookie.py — open the CCloud telemetry Grafana in a browser, le
 the user log in, then save the authenticated session cookie into the project
 .env as GRAFANA_COOKIE.
 
-    .venv/bin/python topic-reports/capture_grafana_cookie.py
+    .venv/bin/python report-gen/capture_grafana_cookie.py
 
 It launches a real (headed) Chromium window via Playwright, navigates to
 grafana.telemetry.aws.confluent.cloud, waits for you to finish authenticating

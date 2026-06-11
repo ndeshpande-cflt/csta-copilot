@@ -23,7 +23,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
-from flask import Flask, render_template, request, redirect, url_for
+from flask import (
+    Flask, render_template, request, redirect, url_for,
+    send_file, abort, Response,
+)
+from markupsafe import escape
 
 from dotenv import load_dotenv
 
@@ -33,7 +37,25 @@ CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "600"))  # 10 min default
 
 CUSTOMERS_JSON = Path(__file__).parent / "customers.json"
 CLUSTER_METRICS_JSON = Path(__file__).parent / "cluster_metrics.json"
+CLUSTER_GUIDELINES_JSON = Path(__file__).parent / "cluster_guidelines.json"
 DB_PATH = Path(__file__).parent / "cache.db"
+
+# Pre-generated metric reports (produced by the report-gen/ scripts) live under
+# reports-output/<kind>/<cluster-id>.html. The cluster page links to them; if a
+# report hasn't been generated yet we serve a placeholder with the command.
+PROJECT_DIR = Path(__file__).parent
+REPORTS_DIR = PROJECT_DIR / "report-gen" / "reports-output"
+REPORT_KINDS = {
+    "topics": {
+        "title": "Topics — received bytes",
+        "script": "report-gen/topic_report.py",
+    },
+    "client_versions": {
+        "title": "Client versions",
+        "script": "report-gen/client_versions_report.py",
+    },
+}
+SAFE_CLUSTER_RE = re.compile(r"^lkc-[a-z0-9]+$")
 
 # Placeholders in cluster_metrics.json URLs, replaced per-cluster:
 #   #PKCID#  -> physical cluster id (pkc-…, the Grafana k8s_namespace_name)
@@ -734,8 +756,8 @@ _OBS_SECTIONS = (
     ("Cluster Linking", [
         ("Active links", "cl_num_active_link_count"),
         ("Mirror topics", "cl_num_mirror_topic"),
-        ("Source total response (MB)", "cl_source_total_response_mb"),
-        ("Destination total response (MB)", "cl_dest_total_response_mb"),
+        ("Source (outgoing in MB)", "cl_source_total_response_mb"),
+        ("Destination (incoming in MB)", "cl_dest_total_response_mb"),
     ]),
 )
 
@@ -770,19 +792,102 @@ def _connector_type_counts(connectors):
     return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
-def cluster_obs_summary(org_id, lkc_id):
+# cloud-obs "Last 24 hours" peak fields mapped to their per-unit guideline
+# dimension in cluster_guidelines.json. Egress = read, ingress = write.
+_OBS_FIELD_GUIDELINE = {
+    "l24_kafka_num_partition": "partitions_pre_replication",
+    "l24_peak_active_connection_count": "total_client_connections",
+    "l24_peak_request_per_second": "requests_per_sec",
+    "l24_peak_read_mbps": "egress_mb_per_sec",
+    "l24_peak_write_mbps": "ingress_mb_per_sec",
+}
+
+
+def _load_cluster_guidelines():
+    """Load the per-cluster-type guideline values (the "clusters" object) from
+    cluster_guidelines.json: {type: {dimension: per_unit_value, …}, …}."""
+    if not CLUSTER_GUIDELINES_JSON.exists():
+        return {}
+    try:
+        data = json.loads(CLUSTER_GUIDELINES_JSON.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    clusters = data.get("clusters")
+    return clusters if isinstance(clusters, dict) else {}
+
+
+CLUSTER_GUIDELINES = _load_cluster_guidelines()
+
+
+def _cluster_guideline(cluster, kafka):
+    """Resolve the cluster's guideline thresholds: {'units': n, 'dims': {dim:
+    per_unit}}. Guideline values are per CKU/eCKU, so the effective threshold is
+    per_unit * unit_count. Returns None when the cluster type is unknown."""
+    if not isinstance(cluster, dict):
+        return None
+    sku = (cluster.get("sku") or "").strip().lower()
+    guideline = CLUSTER_GUIDELINES.get(sku)
+    if not isinstance(guideline, dict):
+        return None
+    cku = cluster.get("cku")
+    if not (isinstance(cku, (int, float)) and cku > 0):
+        cku = kafka.get("l24_num_dedicated_cku") if isinstance(kafka, dict) else None
+    units = cku if isinstance(cku, (int, float)) and cku > 0 else 1
+    dims = {k: v for k, v in guideline.items() if isinstance(v, (int, float))}
+    return {"units": units, "dims": dims}
+
+
+def _usage_pct(value, threshold):
+    """value/threshold as a percentage, or None if not computable."""
+    try:
+        v, t = float(value), float(threshold)
+    except (TypeError, ValueError):
+        return None
+    return v / t * 100 if t > 0 else None
+
+
+def _usage_status(pct):
+    """Colour band for a usage percentage. The 80–90 range falls in 'amber'."""
+    if pct > 100:
+        return "critical"   # dark red + alert
+    if pct >= 90:
+        return "red"
+    if pct >= 70:
+        return "amber"
+    return "green"
+
+
+def cluster_obs_summary(org_id, lkc_id, cluster=None):
     """Structured cluster stats from cloud-obs for the details page, or None if
-    unavailable. Returns {"groups": [{title, rows}, …], "connectors": [{…}, …]}."""
+    unavailable. Returns {"groups": [{title, rows}, …], "connectors": [{…}, …]}.
+
+    Each row is a dict {label, value, pct, status, threshold}; pct/status are set
+    only for fields with a guideline (see _OBS_FIELD_GUIDELINE)."""
     data = fetch_cluster_obs(org_id, lkc_id)
     if not isinstance(data, dict):
         return None
     kafka = data.get("kafka")
     if not isinstance(kafka, dict):
         return None
-    groups = [
-        {"title": title, "rows": [(label, kafka.get(field)) for label, field in rows]}
-        for title, rows in _OBS_SECTIONS
-    ]
+    guideline = _cluster_guideline(cluster, kafka)
+    groups = []
+    for title, rows in _OBS_SECTIONS:
+        out_rows = []
+        for label, field in rows:
+            value = kafka.get(field)
+            row = {"label": label, "value": value,
+                   "pct": None, "status": None, "threshold": None}
+            dim = _OBS_FIELD_GUIDELINE.get(field)
+            if dim and guideline:
+                per_unit = guideline["dims"].get(dim)
+                if per_unit:
+                    threshold = per_unit * guideline["units"]
+                    pct = _usage_pct(value, threshold)
+                    if pct is not None:
+                        row.update(pct=pct, status=_usage_status(pct),
+                                   threshold=threshold)
+            out_rows.append(row)
+        groups.append({"title": title, "rows": out_rows})
     connectors = _extract_connectors(data.get("connect"))
     return {
         "groups": groups,
@@ -906,12 +1011,13 @@ def metric_cluster(slug, env_id, cluster_id):
     metric_links = cluster_metric_links(
         cluster.get("physical_cluster_id"), cluster.get("id"), org_id,
     ) if cluster else {g: [] for g in CLUSTER_METRIC_GROUPS}
-    obs = cluster_obs_summary(org_id, cluster["id"]) if cluster else None
+    obs = cluster_obs_summary(org_id, cluster["id"], cluster) if cluster else None
     env_name = env_name_for(org.get("confluent_org_id"), env_id)
     return render_template(
         "metric_cluster.html",
         org=org, env_id=env_id, env_name=env_name, cluster_id=cluster_id,
         cluster=cluster, metric_links=metric_links,
+        report_links=_report_links(cluster["id"]) if cluster else [],
         obs_groups=obs["groups"] if obs else None,
         connectors=obs["connectors"] if obs else None,
         connector_types=obs["connector_types"] if obs else None,
@@ -963,15 +1069,96 @@ def metric_cluster_direct(cluster_id):
     metric_links = cluster_metric_links(
         cluster.get("physical_cluster_id"), cluster.get("id"), org_id,
     ) if cluster else {g: [] for g in CLUSTER_METRIC_GROUPS}
-    obs = cluster_obs_summary(org_id, cluster["id"]) if cluster else None
+    obs = cluster_obs_summary(org_id, cluster["id"], cluster) if cluster else None
     return render_template(
         "metric_cluster.html",
         org=org, env_id=env_id, env_name=env_name, cluster_id=cluster_id,
         cluster=cluster, metric_links=metric_links,
+        report_links=_report_links(cluster["id"]) if cluster else [],
         obs_groups=obs["groups"] if obs else None,
         connectors=obs["connectors"] if obs else None,
         connector_types=obs["connector_types"] if obs else None,
     )
+
+
+def _report_links(cluster_id):
+    """Build the report descriptors for the cluster page: one per report kind,
+    each with whether its HTML has been generated yet and the link to view it."""
+    links = []
+    for kind, meta in REPORT_KINDS.items():
+        path = REPORTS_DIR / kind / f"{cluster_id}.html"
+        links.append({
+            "kind": kind,
+            "title": meta["title"],
+            "exists": path.exists(),
+            "url": url_for("cluster_report", kind=kind, cluster_id=cluster_id),
+        })
+    return links
+
+
+def _report_command(kind, cluster_id):
+    """The ready-to-run command that generates a given report."""
+    script = REPORT_KINDS[kind]["script"]
+    return f"cd {PROJECT_DIR}\n./{script} --cluster-id {cluster_id}"
+
+
+def _report_placeholder(kind, cluster_id, meta):
+    """Self-contained HTML shown when a report hasn't been generated yet:
+    a short message plus the copy-pasteable command to produce it."""
+    cmd = _report_command(kind, cluster_id)
+    cmd_html = escape(cmd)
+    title = escape(meta["title"])
+    cid = escape(cluster_id)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title} — {cid} (not generated)</title>
+<style>
+  body {{ font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+         margin: 0; min-height: 100vh; display: flex; align-items: center;
+         justify-content: center; background: #fafafa; color: #1a1a1a; }}
+  .card {{ background: #fff; max-width: 640px; padding: 2rem 2.25rem; margin: 2rem;
+          border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.1); }}
+  h1 {{ font-size: 1.25rem; margin: 0 0 .5rem; }}
+  p {{ color: #555; line-height: 1.5; }}
+  .cmd {{ position: relative; background: #1e1e2e; color: #e6e6e6; border-radius: 8px;
+         padding: 1rem 1rem; margin-top: 1rem; font-family: ui-monospace, Menlo, monospace;
+         font-size: .85rem; white-space: pre; overflow-x: auto; }}
+  button {{ position: absolute; top: .5rem; right: .5rem; background: #3b3b52;
+           color: #fff; border: 0; border-radius: 6px; padding: .3rem .6rem;
+           font-size: .75rem; cursor: pointer; }}
+  button:hover {{ background: #50506e; }}
+  .hint {{ font-size: .8rem; color: #888; margin-top: 1rem; }}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>{title}</h1>
+    <p>No report has been generated for <strong>{cid}</strong> yet. Run the command
+       below in a terminal, then refresh this page.</p>
+    <div class="cmd"><button onclick="navigator.clipboard.writeText(this.parentNode.textContent.trim()).then(()=>{{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)}})">Copy</button>{cmd_html}</div>
+    <p class="hint">The first run may open a browser to capture a Grafana session
+       cookie if one isn't already stored.</p>
+  </div>
+</body>
+</html>
+"""
+
+
+@app.route("/reports/<kind>/<cluster_id>")
+def cluster_report(kind, cluster_id):
+    """Serve a pre-generated report HTML for a cluster, or a placeholder (with the
+    command to generate it) when it doesn't exist yet."""
+    cluster_id = cluster_id.lower()
+    meta = REPORT_KINDS.get(kind)
+    if not meta or not SAFE_CLUSTER_RE.match(cluster_id):
+        abort(404)
+    path = REPORTS_DIR / kind / f"{cluster_id}.html"
+    if path.exists():
+        return send_file(path)
+    return Response(_report_placeholder(kind, cluster_id, meta), mimetype="text/html")
 
 
 @app.route("/settings")

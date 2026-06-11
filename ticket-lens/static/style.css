@@ -679,8 +679,9 @@ code { font-family: var(--font-mono); background: var(--panel-2); padding: 1px 5
 .brief-body .muted { color: var(--muted); font-style: italic; }
 .brief-body code { word-break: break-word; }
 
-/* Compact sentiment pill for the ticket-facts key/value slot. */
-.ticket-facts .sentiment-pill {
+/* Compact sentiment/theme pills for the ticket-facts key/value slot. */
+.ticket-facts .sentiment-pill,
+.ticket-facts .theme-pill {
   padding: 2px 10px; font-size: 0.8rem;
 }
 
@@ -813,6 +814,13 @@ code { font-family: var(--font-mono); background: var(--panel-2); padding: 1px 5
 .sentiment-frustrated { background: rgba(240, 140, 110, 0.15); color: #f08c6e; }
 .sentiment-angry      { background: rgba(225, 111, 111, 0.18); color: var(--danger); }
 .sentiment-unknown    { background: var(--panel); color: var(--muted); }
+
+/* AI-derived theme label (from the short-summary prompt) */
+.theme-pill {
+  display: inline-block; padding: 4px 12px; border-radius: 999px;
+  font-size: 0.85rem; font-weight: 600; letter-spacing: 0.02em;
+  background: rgba(120, 150, 240, 0.15); color: var(--accent-2, #7a90c0);
+}
 
 /* Timeline */
 .tl { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }

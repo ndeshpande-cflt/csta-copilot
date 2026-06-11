@@ -284,6 +284,19 @@ code { font-family: var(--font-mono); background: var(--panel-2); padding: 1px 5
 .break-anywhere { word-break: break-all; }
 .small { font-size: 0.78rem; }
 
+/* Usage pill: a metric value's percentage of its per-CKU guideline threshold.
+   <70 green · 70–90 amber · 90–100 red · >100 dark red + ⚠ */
+.usage-pill {
+  display: inline-block; margin-left: 6px;
+  padding: 1px 7px; border-radius: 10px;
+  font-size: 0.72rem; font-weight: 600;
+  font-variant-numeric: tabular-nums; vertical-align: middle;
+}
+.usage-pill.green    { background: #e8f5e9; color: #2e7d32; }
+.usage-pill.amber    { background: #fff8e1; color: #b8860b; }
+.usage-pill.red      { background: #ffebee; color: #c62828; }
+.usage-pill.critical { background: #c62828; color: #fff; }
+
 /* Cluster stats (cloud-obs), grouped into named sub-sections */
 .cluster-stats {
   padding: 18px 20px; border-radius: 8px;
@@ -346,6 +359,23 @@ code { font-family: var(--font-mono); background: var(--panel-2); padding: 1px 5
 }
 .metric-link::after { content: "↗"; color: var(--muted); font-size: 0.85em; }
 .metric-link:hover { border-color: var(--accent, var(--muted)); background: var(--panel); }
+
+/* Report links: like metric links, with a status chip showing generated state */
+.report-link {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  color: var(--text); text-decoration: none;
+  font-size: 0.9rem; font-weight: 500;
+  transition: border-color 120ms, background 120ms;
+}
+.report-link:hover { border-color: var(--accent, var(--muted)); background: var(--panel); }
+.report-status {
+  font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.03em; padding: 2px 8px; border-radius: 10px;
+}
+.report-link.ready .report-status { background: #e8f5e9; color: #2e7d32; }
+.report-link.pending .report-status { background: #fff8e1; color: #b8860b; }
 
 /* Status pill colors for cluster status */
 .status.status-up { background: rgba(110, 224, 168, 0.12); color: var(--good); border: 1px solid rgba(110, 224, 168, 0.35); }

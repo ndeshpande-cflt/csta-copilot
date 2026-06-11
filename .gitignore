@@ -54,7 +54,7 @@ customers.json
 
 # Generated per-cluster topic reports — contain decrypted topic names, which
 # are sensitive customer data. Never commit.
-resource-lens/topic-reports/clusters/
+resource-lens/report-gen/reports-output/
 
 # Local Claude Code project settings — keep out of version control.
 **/.claude/settings.json

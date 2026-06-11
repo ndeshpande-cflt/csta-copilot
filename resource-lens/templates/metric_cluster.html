@@ -98,8 +98,17 @@
           <div class="stats-subsection">
             <h3 class="stats-subtitle">{{ grp.title }}</h3>
             <dl class="kv-grid">
-              {% for label, value in grp.rows %}
-                <dt>{{ label }}</dt><dd>{% if '(MB)' in label %}{{ value | mb }}{% else %}{{ value | num }}{% endif %}</dd>
+              {% for r in grp.rows %}
+                <dt>{{ r.label }}</dt>
+                <dd>
+                  {% if '(MB)' in r.label %}{{ r.value | mb }}{% else %}{{ r.value | num }}{% endif %}
+                  {% if r.pct is not none %}
+                    <span class="usage-pill {{ r.status }}"
+                          title="{{ r.value | num }} of {{ r.threshold | num }} guideline">
+                      {% if r.status == 'critical' %}⚠ {% endif %}{{ r.pct | round(0) | int }}%
+                    </span>
+                  {% endif %}
+                </dd>
               {% endfor %}
             </dl>
           </div>
@@ -180,6 +189,23 @@
         <div class="metric-links">
           {% for m in metric_links.dashboards %}
             <a class="metric-link" href="{{ m.url }}" target="_blank" rel="noopener">{{ m.name }}</a>
+          {% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    {% if report_links %}
+      <section class="cluster-metrics">
+        <h2 class="metric-section-title">
+          Reports <span class="muted small">· generated locally · opens in a new tab ↗</span>
+        </h2>
+        <div class="metric-links">
+          {% for r in report_links %}
+            <a class="report-link {{ 'ready' if r.exists else 'pending' }}"
+               href="{{ r.url }}" target="_blank" rel="noopener">
+              {{ r.title }}
+              <span class="report-status">{{ 'view' if r.exists else 'not generated' }}</span>
+            </a>
           {% endfor %}
         </div>
       </section>

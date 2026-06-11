@@ -92,6 +92,16 @@
         {% endif %}
       </dd>
     </div>
+    <div>
+      <dt>Theme</dt>
+      <dd id="theme-cell">
+        {% if meta.theme %}
+          <span class="theme-pill">{{ meta.theme }}</span>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </dd>
+    </div>
     <div class="contacts">
       <dt>Customer contacts</dt>
       <dd>
@@ -365,6 +375,13 @@ window.renderMarkdown = function renderMarkdown(raw) {
       if (sCell && j.sentiment) {
         const s = String(j.sentiment).toLowerCase();
         sCell.innerHTML = '<span class="sentiment-pill sentiment-' + s + '">' + j.sentiment + '</span>';
+      }
+      const tCell = document.getElementById('theme-cell');
+      if (tCell && j.theme) {
+        const t = document.createElement('span');
+        t.className = 'theme-pill';
+        t.textContent = j.theme;
+        tCell.replaceChildren(t);
       }
     })
     .catch(e => {
