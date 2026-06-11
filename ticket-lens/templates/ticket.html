@@ -131,11 +131,11 @@
 
 <div class="main">
   <div class="page-actions">
-    <button type="button" id="chat-open" class="chat-open-btn" aria-label="Ask Claude about this ticket">
+    <button type="button" id="chat-open" class="chat-open-btn" aria-label="Ask AI about this ticket">
       <svg class="brand-icon brand-claude" viewBox="0 0 24 24" aria-hidden="true">
         <path fill="currentColor" d="M12 2.2l1.9 5.9 5.9 1.9-5.9 1.9L12 17.8l-1.9-5.9L4.2 10l5.9-1.9L12 2.2zM18.5 14.5l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6zM5 16l.6 1.7 1.7.6-1.7.6L5 20.6l-.6-1.7L2.7 18.3l1.7-.6L5 16z"/>
       </svg>
-      <span>Ask Claude about this ticket</span>
+      <span>Ask AI about this ticket</span>
     </button>
   </div>
 
@@ -232,16 +232,38 @@
       autocomplete="off"
     ></textarea>
     <div class="chat-input-actions">
-      <label class="glean-switch" title="When on, Claude can search Glean (your internal docs) to answer.">
-        <svg class="brand-icon brand-glean" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/>
-          <line x1="15.5" y1="15.5" x2="20.5" y2="20.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-          <text x="11" y="14" text-anchor="middle" font-size="7" font-weight="700" fill="currentColor" font-family="ui-sans-serif, system-ui, sans-serif">G</text>
-        </svg>
-        <span class="glean-switch-label">Use Glean to answer</span>
-        <input type="checkbox" id="chat-glean-toggle" class="glean-switch-input">
-        <span class="glean-switch-track" aria-hidden="true"><span class="glean-switch-thumb"></span></span>
-      </label>
+      <div class="chat-source" id="chat-source">
+        <button type="button" class="chat-source-trigger" id="chat-source-trigger"
+                aria-haspopup="listbox" aria-expanded="false"
+                title="Choose what answers your question">
+          <span class="chat-source-current" id="chat-source-current"></span>
+          <svg class="chat-source-chevron" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
+        <ul class="chat-source-menu" id="chat-source-menu" role="listbox" hidden>
+          <li class="chat-source-option" role="option" data-source="glean" aria-selected="true">
+            <svg class="brand-icon brand-glean" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/>
+              <line x1="15.5" y1="15.5" x2="20.5" y2="20.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+              <text x="11" y="14" text-anchor="middle" font-size="7" font-weight="700" fill="currentColor" font-family="ui-sans-serif, system-ui, sans-serif">G</text>
+            </svg>
+            <span class="chat-source-option-label">Glean<small>Search your internal docs</small></span>
+            <svg class="chat-source-check" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M5 12l5 5 9-10"/>
+            </svg>
+          </li>
+          <li class="chat-source-option" role="option" data-source="claude" aria-selected="false">
+            <svg class="brand-icon brand-claude" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M12 2.2l1.9 5.9 5.9 1.9-5.9 1.9L12 17.8l-1.9-5.9L4.2 10l5.9-1.9L12 2.2zM18.5 14.5l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/>
+            </svg>
+            <span class="chat-source-option-label">Claude<small>Answer from the ticket only</small></span>
+            <svg class="chat-source-check" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M5 12l5 5 9-10"/>
+            </svg>
+          </li>
+        </ul>
+      </div>
       <button type="submit" id="chat-send" class="chat-send">
         <svg class="brand-icon brand-claude" viewBox="0 0 24 24" aria-hidden="true">
           <path fill="currentColor" d="M12 2.2l1.9 5.9 5.9 1.9-5.9 1.9L12 17.8l-1.9-5.9L4.2 10l5.9-1.9L12 2.2zM18.5 14.5l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/>
@@ -454,19 +476,85 @@ document.querySelectorAll('.vtab').forEach(tab => {
   // to the server on each turn — server is stateless.
   const messages = [];
 
-  // Glean toggle (checkbox-backed slider). Persisted in localStorage so the
-  // user's preference survives page reloads. When on, the chat POST includes
-  // use_glean:true and the server allows mcp__glean__* tools.
-  const gleanInput = document.getElementById('chat-glean-toggle');
-  const GLEAN_KEY = 'chat-use-glean';
-  let useGlean = localStorage.getItem(GLEAN_KEY) === '1';
-  if (gleanInput) {
-    gleanInput.checked = useGlean;
-    gleanInput.addEventListener('change', () => {
-      useGlean = gleanInput.checked;
-      localStorage.setItem(GLEAN_KEY, useGlean ? '1' : '0');
+  // Answer-source picker (Glean / Claude), styled like a model selector.
+  // Persisted in localStorage so the choice survives reloads. "Glean" sends
+  // use_glean:true (server allows mcp__glean__* tools); "Claude" answers from
+  // the ticket alone. Glean is the default.
+  const sourceWrap = document.getElementById('chat-source');
+  const sourceTrigger = document.getElementById('chat-source-trigger');
+  const sourceCurrent = document.getElementById('chat-source-current');
+  const sourceMenu = document.getElementById('chat-source-menu');
+  const sourceOptions = sourceMenu
+    ? Array.from(sourceMenu.querySelectorAll('.chat-source-option')) : [];
+
+  const SOURCE_KEY = 'chat-answer-source';
+  const SOURCE_LABELS = { glean: 'Glean', claude: 'Claude' };
+
+  // Clone the matching option's brand icon into the trigger so the two stay
+  // visually identical without duplicating the SVG markup here.
+  function sourceIcon(name) {
+    const opt = sourceOptions.find((o) => o.dataset.source === name);
+    const icon = opt && opt.querySelector('.brand-icon');
+    return icon ? icon.cloneNode(true) : null;
+  }
+
+  // Resolve the initial choice: stored value wins, else migrate the old
+  // boolean toggle ('chat-use-glean'), else default to Glean.
+  let source = localStorage.getItem(SOURCE_KEY);
+  if (source !== 'glean' && source !== 'claude') {
+    source = localStorage.getItem('chat-use-glean') === '0' ? 'claude' : 'glean';
+  }
+  let useGlean = source === 'glean';
+
+  function renderSource() {
+    if (sourceCurrent) {
+      sourceCurrent.innerHTML = '';
+      const icon = sourceIcon(source);
+      if (icon) sourceCurrent.appendChild(icon);
+      const name = document.createElement('span');
+      name.className = 'chat-source-name';
+      name.textContent = SOURCE_LABELS[source];
+      sourceCurrent.appendChild(name);
+    }
+    sourceOptions.forEach((opt) => {
+      const sel = opt.dataset.source === source;
+      opt.classList.toggle('is-selected', sel);
+      opt.setAttribute('aria-selected', sel ? 'true' : 'false');
+    });
+    if (sourceWrap) sourceWrap.classList.toggle('is-glean', source === 'glean');
+  }
+  function setSource(next) {
+    source = next === 'claude' ? 'claude' : 'glean';
+    useGlean = source === 'glean';
+    localStorage.setItem(SOURCE_KEY, source);
+    renderSource();
+  }
+  function closeSourceMenu() {
+    if (!sourceMenu) return;
+    sourceMenu.hidden = true;
+    sourceTrigger.setAttribute('aria-expanded', 'false');
+  }
+  if (sourceTrigger) {
+    sourceTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = sourceMenu.hidden;
+      sourceMenu.hidden = !open;
+      sourceTrigger.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
   }
+  sourceOptions.forEach((opt) => {
+    opt.addEventListener('click', () => {
+      setSource(opt.dataset.source);
+      closeSourceMenu();
+    });
+  });
+  document.addEventListener('click', (e) => {
+    if (sourceWrap && !sourceWrap.contains(e.target)) closeSourceMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSourceMenu();
+  });
+  renderSource();
 
   function openPanel() {
     panel.hidden = false;
