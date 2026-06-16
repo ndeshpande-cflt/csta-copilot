@@ -279,23 +279,27 @@ def _render_html(cluster_id, hours, rows, counts, from_ms, to_ms):
         )
     rows_html = "\n".join(body_rows)
 
-    # Aggregate unsupported clients by unique (software, version) combination.
-    agg = {}
-    for r in rows:
-        if r["status"] != STATUS_UNSUPPORTED:
-            continue
-        k = (str(r["software"]), str(r["version"]))
-        a = agg.setdefault(k, {"software": k[0], "version": k[1],
-                               "eos": r["eos"], "clients": 0, "connections": 0})
-        a["clients"] += 1
-        a["connections"] += r["connections"]
-    agg_rows = sorted(agg.values(),
+    # Aggregate clients by unique (software, version) within a status, so each
+    # support category gets its own "by library & version" table.
+    def _aggregate(status):
+        agg = {}
+        for r in rows:
+            if r["status"] != status:
+                continue
+            k = (str(r["software"]), str(r["version"]))
+            a = agg.setdefault(k, {"software": k[0], "version": k[1],
+                                   "eos": r["eos"], "clients": 0, "connections": 0})
+            a["clients"] += 1
+            a["connections"] += r["connections"]
+        return sorted(agg.values(),
                       key=lambda a: (-a["connections"], a["software"], a["version"]))
 
-    agg_section = ""
-    if agg_rows:
+    def _agg_block(status, label):
+        agg_rows = _aggregate(status)
+        if not agg_rows:
+            return ""
         agg_body = "\n".join(
-            "      <tr>"
+            "          <tr>"
             f"<td>{html.escape(a['software'])}</td>"
             f"<td>{html.escape(a['version'])}</td>"
             f"<td>{html.escape(a['eos']) if a['eos'] else '—'}</td>"
@@ -304,18 +308,27 @@ def _render_html(cluster_id, hours, rows, counts, from_ms, to_ms):
             "</tr>"
             for a in agg_rows
         )
-        agg_section = f"""  <h2 class="section-title">Unsupported clients — by library &amp; version
-    <span class="muted">({len(agg_rows)} unique, {sum(a['clients'] for a in agg_rows)} clients)</span></h2>
-  <table class="agg">
-    <thead>
-      <tr><th>Software</th><th>Version</th><th>End of Support</th>
-          <th class="num">Clients</th><th class="num">Connections</th></tr>
-    </thead>
-    <tbody>
+        return f"""    <div class="agg-block">
+      <h2 class="section-title">{label} clients — by library &amp; version
+        <span class="muted">({len(agg_rows)} unique, {sum(a['clients'] for a in agg_rows)} clients)</span></h2>
+      <table class="agg {status}">
+        <thead>
+          <tr><th>Software</th><th>Version</th><th>End of Support</th>
+              <th class="num">Clients</th><th class="num">Connections</th></tr>
+        </thead>
+        <tbody>
 {agg_body}
-    </tbody>
-  </table>
+        </tbody>
+      </table>
+    </div>
 """
+
+    agg_blocks = (
+        _agg_block(STATUS_UNSUPPORTED, "Unsupported")
+        + _agg_block(STATUS_SUPPORTED, "Supported")
+        + _agg_block(STATUS_UNKNOWN, "Unknown")
+    )
+    agg_section = f'  <div class="agg-row">\n{agg_blocks}  </div>\n' if agg_blocks else ""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -351,7 +364,14 @@ def _render_html(cluster_id, hours, rows, counts, from_ms, to_ms):
   .pill.unknown     {{ background: #fff8e1; color: #f9a825; }}
   .section-title {{ font-size: 1rem; margin: 1.5rem 0 .5rem; }}
   .section-title .muted {{ color: #999; font-weight: 400; font-size: .85rem; }}
-  table.agg {{ max-width: 760px; border-left: 3px solid #c62828; }}
+  .agg-row {{ display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start;
+             margin: 1rem 0; }}
+  .agg-block {{ flex: 1 1 340px; min-width: 300px; max-width: 560px; }}
+  .agg-block .section-title {{ margin-top: 0; }}
+  table.agg {{ max-width: 100%; border-left: 3px solid #ccc; }}
+  table.agg.unsupported {{ border-left-color: #c62828; }}
+  table.agg.supported   {{ border-left-color: #2e7d32; }}
+  table.agg.unknown     {{ border-left-color: #f9a825; }}
 </style>
 </head>
 <body>

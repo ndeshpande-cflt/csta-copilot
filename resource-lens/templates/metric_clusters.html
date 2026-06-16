@@ -49,6 +49,9 @@
           <tr class="ticket-row" data-href="{{ url_for('metric_cluster', slug=org.slug, env_id=env_id, cluster_id=c.id) }}">
             <td class="col-id"><a href="{{ url_for('metric_cluster', slug=org.slug, env_id=env_id, cluster_id=c.id) }}" class="ticket-id-link">{{ c.id }}</a></td>
             <td class="col-subject">
+              <span class="usage-indicator" data-usage-url="{{ url_for('cluster_usage', slug=org.slug, env_id=env_id, cluster_id=c.id) }}" title="Checking usage…">
+                <span class="usage-dots" aria-hidden="true"><i></i><i></i></span>
+              </span>
               {{ c.name }}
               {% if c.pending_cku %}
                 <span class="count-pill count-pending" title="Resize in progress"><strong>{{ c.pending_cku }}</strong> pending CKU</span>
@@ -87,6 +90,40 @@
       window.location.href = row.dataset.href;
     });
   });
+
+  // Lazily resolve each cluster's usage indicator (two-dot loader → green tick
+  // or red alert). cloud-obs can be slow, so fetch a few at a time and update
+  // each indicator as soon as its response lands.
+  const indicators = Array.from(document.querySelectorAll('.usage-indicator'));
+  function render(el, data) {
+    const state = data && data.state;
+    if (state === 'ok') {
+      el.innerHTML = '<span class="usage-mark ok" aria-hidden="true">✓</span>';
+      el.title = 'All metrics at or below 80% of guidelines' +
+                 (data.pct != null ? ' (peak ' + data.pct + '%)' : '');
+    } else if (state === 'alert') {
+      el.innerHTML = '<span class="usage-mark alert" aria-hidden="true">⚠</span>';
+      el.title = 'A metric is above 80% of a guideline' +
+                 (data.pct != null ? ' (peak ' + data.pct + '%)' : '') +
+                 ' — open for details.';
+    } else {
+      // No usage data — drop the indicator entirely.
+      el.remove();
+    }
+  }
+  async function worker(queue) {
+    for (let el; (el = queue.pop()); ) {
+      try {
+        const res = await fetch(el.dataset.usageUrl, { headers: { 'Accept': 'application/json' } });
+        render(el, res.ok ? await res.json() : { state: 'none' });
+      } catch (_) {
+        render(el, { state: 'none' });
+      }
+    }
+  }
+  const queue = indicators.slice();
+  const CONCURRENCY = 4;
+  for (let i = 0; i < CONCURRENCY; i++) worker(queue);
 })();
 </script>
 </body>

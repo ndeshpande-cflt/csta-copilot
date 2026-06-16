@@ -25,7 +25,7 @@ from pathlib import Path
 import requests
 from flask import (
     Flask, render_template, request, redirect, url_for,
-    send_file, abort, Response,
+    send_file, abort, Response, jsonify,
 )
 from markupsafe import escape
 
@@ -632,6 +632,44 @@ def _extract_environments(raw):
     return out
 
 
+# Environment name → category. The name is lowercased and split on
+# non-alphanumeric chars; rules are tried in order so multi-token names resolve
+# to the most specific environment: DR wins over a prod/stage token, and
+# pre-prod/uat/release count as staging rather than prod. Names that match
+# nothing fall through to Prod (per product guidance).
+_ENV_CATEGORY_RULES = [
+    ("DR",      {"dr", "drsite", "disaster", "disasterrecovery", "failover", "bcp"}),
+    ("Dev",     {"dev", "develop", "development", "devel", "sandbox", "sbx", "local"}),
+    ("QA",      {"qa", "qc", "test", "tst", "testing", "sit", "loadtest", "perf", "perftest"}),
+    ("Staging", {"stage", "staging", "stg", "preprod", "preproduction", "pre",
+                 "uat", "release", "rc", "canary", "demo"}),
+    ("Prod",    {"prod", "prd", "production", "prdn", "live"}),
+]
+# Display order for the grouped listing.
+_ENV_CATEGORY_ORDER = ["Prod", "DR", "Staging", "QA", "Dev"]
+
+
+def classify_environment(name):
+    """Bucket an environment by name into one of Prod/DR/Staging/QA/Dev,
+    defaulting to Prod when no keyword matches."""
+    tokens = set(re.split(r"[^a-z0-9]+", (name or "").lower()))
+    for category, keywords in _ENV_CATEGORY_RULES:
+        if tokens & keywords:
+            return category
+    return "Prod"
+
+
+def group_environments(envs):
+    """Tag each env with its 'category' and return [(category, [env, …]), …] in
+    display order, omitting categories with no environments."""
+    buckets = {cat: [] for cat in _ENV_CATEGORY_ORDER}
+    for e in envs:
+        cat = classify_environment(e.get("name"))
+        e["category"] = cat
+        buckets[cat].append(e)
+    return [(cat, buckets[cat]) for cat in _ENV_CATEGORY_ORDER if buckets[cat]]
+
+
 def _extract_clusters(raw):
     """Flatten the nested `/api/internal/clusters` response into per-cluster dicts."""
     candidates = []
@@ -896,6 +934,18 @@ def cluster_obs_summary(org_id, lkc_id, cluster=None):
     }
 
 
+def cluster_peak_usage_pct(org_id, lkc_id, cluster):
+    """Highest guideline-backed usage percentage across a cluster's stats, or
+    None if none could be computed. Drives the alert badge in the cluster
+    listing. Safe: cloud-obs failures surface as None, never an exception."""
+    summary = cluster_obs_summary(org_id, lkc_id, cluster)
+    if not summary:
+        return None
+    pcts = [row["pct"] for group in summary["groups"] for row in group["rows"]
+            if row.get("pct") is not None]
+    return max(pcts) if pcts else None
+
+
 # -------------------- Routes --------------------
 
 def _render_home():
@@ -960,7 +1010,11 @@ def metric_envs(slug):
     except requests.RequestException as e:
         return render_template("error.html", message=f"Confluent Cloud request failed: {e}"), 502
     envs = _extract_environments(raw)
-    return render_template("metric_envs.html", org=org, envs=envs, raw_count=len(envs))
+    env_groups = group_environments(envs)
+    return render_template(
+        "metric_envs.html", org=org, envs=envs, env_groups=env_groups,
+        raw_count=len(envs),
+    )
 
 
 @app.route("/m/<slug>/env/<env_id>")
@@ -981,9 +1035,39 @@ def metric_clusters(slug, env_id):
     except requests.RequestException as e:
         return render_template("error.html", message=f"Confluent Cloud request failed: {e}"), 502
     clusters = _extract_clusters(raw)
+    # Per-cluster usage is fetched lazily by the page (see the /usage endpoint
+    # below) so the listing renders immediately instead of blocking on a
+    # cloud-obs call per cluster.
     return render_template(
         "metric_clusters.html", org=org, env_id=env_id, clusters=clusters,
     )
+
+
+@app.route("/m/<slug>/env/<env_id>/cluster/<cluster_id>/usage")
+def cluster_usage(slug, env_id, cluster_id):
+    """Lazy per-cluster usage check for the listing. Returns one of:
+      {"state": "ok"}     all guideline usage <= 80%  → green tick
+      {"state": "alert"}  some guideline usage > 80%   → red alert
+      {"state": "none"}   no usage could be computed   → no indicator
+    `pct` (the peak percentage) is included for ok/alert tooltips."""
+    org = find_org(slug)
+    if not org:
+        return jsonify({"state": "none"}), 404
+    org_id = org.get("confluent_org_id") or org.get("id")
+    cluster = None
+    try:
+        for c in _extract_clusters(fetch_clusters(env_id)):
+            if c["id"] == cluster_id:
+                cluster = c
+                break
+    except (MetricLensAuthError, requests.RequestException):
+        cluster = None
+    if not cluster:
+        return jsonify({"state": "none"})
+    pct = cluster_peak_usage_pct(org_id, cluster_id, cluster)
+    if pct is None:
+        return jsonify({"state": "none"})
+    return jsonify({"state": "alert" if pct > 80 else "ok", "pct": round(pct)})
 
 
 @app.route("/m/<slug>/env/<env_id>/cluster/<cluster_id>")
@@ -1138,7 +1222,7 @@ def _report_placeholder(kind, cluster_id, meta):
     <h1>{title}</h1>
     <p>No report has been generated for <strong>{cid}</strong> yet. Run the command
        below in a terminal, then refresh this page.</p>
-    <div class="cmd"><button onclick="navigator.clipboard.writeText(this.parentNode.textContent.trim()).then(()=>{{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)}})">Copy</button>{cmd_html}</div>
+    <div class="cmd"><button onclick="navigator.clipboard.writeText(this.nextElementSibling.textContent).then(()=>{{this.textContent='Copied!';setTimeout(()=>this.textContent='Copy',1500)}})">Copy</button><code class="cmd-text">{cmd_html}</code></div>
     <p class="hint">The first run may open a browser to capture a Grafana session
        cookie if one isn't already stored.</p>
   </div>

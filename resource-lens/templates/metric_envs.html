@@ -38,33 +38,41 @@
 </section>
 
 <div class="main">
-  {% if envs %}
-    <table class="ticket-list">
-      <thead>
-        <tr>
-          <th class="col-id">ID</th>
-          <th class="col-subject">Name</th>
-          <th class="col-status">Status</th>
-          <th>Created</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for e in envs %}
-          <tr class="ticket-row" data-href="{{ url_for('metric_clusters', slug=org.slug, env_id=e.id) }}">
-            <td class="col-id"><a href="{{ url_for('metric_clusters', slug=org.slug, env_id=e.id) }}" class="ticket-id-link">{{ e.id }}</a></td>
-            <td class="col-subject">{{ e.name }}</td>
-            <td class="col-status">
-              {% if e.deactivated %}
-                <span class="status status-closed">deactivated</span>
-              {% else %}
-                <span class="status status-open">active</span>
-              {% endif %}
-            </td>
-            <td class="muted">{{ e.created | short_date or "—" }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  {% if env_groups %}
+    {% for category, group in env_groups %}
+      <section class="env-group">
+        <h2 class="env-group-title">
+          <span class="env-group-badge env-{{ category|lower }}">{{ category }}</span>
+          <span class="env-group-count">{{ group|length }}</span>
+        </h2>
+        <table class="ticket-list">
+          <thead>
+            <tr>
+              <th class="col-id">ID</th>
+              <th class="col-subject">Name</th>
+              <th class="col-status">Status</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in group %}
+              <tr class="ticket-row" data-href="{{ url_for('metric_clusters', slug=org.slug, env_id=e.id) }}">
+                <td class="col-id"><a href="{{ url_for('metric_clusters', slug=org.slug, env_id=e.id) }}" class="ticket-id-link">{{ e.id }}</a></td>
+                <td class="col-subject">{{ e.name }}</td>
+                <td class="col-status">
+                  {% if e.deactivated %}
+                    <span class="status status-closed">deactivated</span>
+                  {% else %}
+                    <span class="status status-open">active</span>
+                  {% endif %}
+                </td>
+                <td class="muted">{{ e.created | short_date or "—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    {% endfor %}
   {% else %}
     <p class="muted empty-state">
       No environments found for {{ org.name }}. Verify <code>confluent_org_id</code>
