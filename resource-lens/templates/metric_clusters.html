@@ -24,6 +24,9 @@
     </div>
     <div class="customer-counts">
       <span class="count-pill"><strong>{{ clusters|length }}</strong> clusters</span>
+      {% for s in cku_summary %}
+        <span class="count-pill cku-pill" title="Total provisioned CKUs for {{ s.sku }} clusters"><strong>{{ s.cku }}</strong> CKU · {{ s.sku }}</span>
+      {% endfor %}
       <span class="muted">Environment: <code>{{ env_id }}</code></span>
     </div>
   </div>

@@ -1038,8 +1038,21 @@ def metric_clusters(slug, env_id):
     # Per-cluster usage is fetched lazily by the page (see the /usage endpoint
     # below) so the listing renders immediately instead of blocking on a
     # cloud-obs call per cluster.
+    # Total provisioned CKUs grouped by SKU, shown in the header. Only clusters
+    # with a real CKU count contribute (elastic SKUs have none).
+    cku_by_sku = {}
+    for c in clusters:
+        cku = c.get("cku")
+        if isinstance(cku, (int, float)) and cku > 0:
+            sku = (c.get("sku") or "unknown")
+            cku_by_sku[sku] = cku_by_sku.get(sku, 0) + cku
+    cku_summary = sorted(
+        ({"sku": k, "cku": v} for k, v in cku_by_sku.items()),
+        key=lambda e: -e["cku"],
+    )
     return render_template(
         "metric_clusters.html", org=org, env_id=env_id, clusters=clusters,
+        cku_summary=cku_summary,
     )
 
 

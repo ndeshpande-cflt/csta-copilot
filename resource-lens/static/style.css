@@ -537,6 +537,8 @@ code { font-family: var(--font-mono); background: var(--panel-2); padding: 1px 5
   border: 1px solid var(--line);
 }
 .count-pill strong { color: var(--text); font-weight: 700; margin-right: 4px; }
+.cku-pill { background: rgba(110, 193, 240, 0.10); border-color: rgba(110, 193, 240, 0.3); text-transform: capitalize; }
+.cku-pill strong { color: var(--accent-2); }
 .count-open    { background: rgba(240, 184, 110, 0.10); border-color: rgba(240, 184, 110, 0.3); }
 .count-open strong    { color: var(--accent); }
 .count-pending { background: rgba(240, 140, 110, 0.10); border-color: rgba(240, 140, 110, 0.3); }
